@@ -1,0 +1,28 @@
+# BEACON - Core Dependencies
+# Deep Learning
+torch>=2.0.0
+einops>=0.7.0
+transformers>=4.35.0
+
+# Genomics
+pyfaidx>=0.7.0
+pyBigWig>=0.3.22
+pybedtools>=0.9.0
+biopython>=1.81
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+h5py>=3.9.0
+
+# Utilities
+tqdm>=4.66.0
+requests>=2.31.0
+pyyaml>=6.0
+tensorboard>=2.14.0
+
+# Development
+pytest>=7.4.0
+black>=23.0.0
