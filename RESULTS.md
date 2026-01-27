@@ -458,26 +458,98 @@ The model cannot optimize all three objectives simultaneously. As profile recons
 
 ---
 
-## Recommendations
+## Two-Stage Training Experiment
 
-### Option 1: Accept Current Results (Pragmatic)
-- Use epoch 26 checkpoint (best TF Acc = 33.7%)
-- Site F1 = 0.30, Profile r = 0.07 acceptable for proof-of-concept
-- Proceed to real ENCODE data
+**Date:** January 24-25, 2026
 
-### Option 2: Fix Loss Balance
-- Reduce profile loss weight after epoch 30
-- Or freeze profile head and continue TF training
-- Target: TF Acc > 25% AND Profile r > 0.30
+### Hypothesis
+Freezing TF head at epoch 30 would preserve TF accuracy while allowing profile reconstruction to improve in later epochs.
 
-### Option 3: Reduce TF Complexity
-- Use 10-15 TFs (more realistic for single cell type)
-- BPNet paper used only 4 TFs
-- Real ENCODE data often has 1 TF per experiment
+### TWOSTAGE_25TF Results
+
+**Config:** 25 TFs, 3-8 sites, overlap, noise, 100 epochs, freeze TF head at epoch 30
+
+| Metric | Value |
+|--------|-------|
+| Test Site F1 | 0.337 |
+| Test TF Accuracy | 8.4% |
+| Test Profile Pearson | **0.613** |
+| Best TF Acc (during training) | 24.2% (epoch 15) |
+| Training Time | 18.6 hours |
+
+### Comparison: Freeze vs No-Freeze
+
+| Metric | No Freeze (MEDIUM_TF) | Freeze at Epoch 30 | Impact |
+|--------|----------------------|---------------------|--------|
+| Best TF Acc | 33.7% (ep 26) | 24.2% (ep 15) | Similar |
+| Final TF Acc | 8.4% | 8.4% | **No improvement** |
+| Final Profile r | 0.620 | 0.613 | Same |
+| Final Site F1 | 0.333 | 0.337 | Same |
+
+### Key Finding: Feature Drift Problem
+
+**Freezing the TF head did NOT preserve TF accuracy.** TF accuracy still collapsed from 24% to 8%.
+
+**Root cause:** The problem is **not** the TF head weights changing. The backbone and slot attention features **drift** toward profile-optimal representations during later training. The frozen TF head receives incompatible features, causing its accuracy to degrade even though its weights are unchanged.
+
+This is a **representation drift** problem, not a **weight drift** problem.
+
+---
+
+## Complete Experiment Summary
+
+### All Results at a Glance
+
+| Experiment | TFs | Sites | Overlap | Noise | Site F1 | TF Acc | Profile r | Key Insight |
+|------------|-----|-------|---------|-------|---------|--------|-----------|-------------|
+| Easy Synthetic | 10 | 1-2 | No | 0.0 | **1.000** | **94.8%** | **0.999** | Perfect on simple data |
+| Hard Synthetic V1 | 50 | 3-8 | Yes | 0.15 | 0.329 | 12.3% | 0.523 | Massive degradation |
+| Ablation C (overlap) | 10 | 1-2 | Yes | 0.0 | 0.103 | 16.4% | 0.002 | Overlap is catastrophic |
+| V2 Overlap Fix (I) | 10 | 5-8 | Yes | 0.0 | 0.515 | 19.2% | 0.005 | Overlap fix works |
+| LONG_OVERLAP | 10 | 5-8 | Yes | 0.0 | **0.602** | 13.6% | 0.546 | Profile needs epochs |
+| HARD_V2 | 50 | 3-8 | Yes | 0.15 | 0.343 | 8.0% | 0.557 | 50 TFs too many |
+| MEDIUM_TF | 25 | 3-8 | Yes | 0.15 | 0.333 | 33.7%* | 0.620* | Trade-off problem |
+| TWOSTAGE_25TF | 25 | 3-8 | Yes | 0.15 | 0.337 | 24.2%* | 0.613 | Feature drift |
+
+*Best values during training, not simultaneous
+
+### Resolved Issues
+
+| Issue | Fix | Status |
+|-------|-----|--------|
+| Profile reconstruction near zero | More training epochs (100+) | ✅ Fixed |
+| Overlapping sites collapse | Overlap separation loss | ✅ Fixed |
+| Profile r = 0 in short runs | BEACONLoss (not simple MSE) | ✅ Fixed |
+
+### Open Issues
+
+| Issue | Attempted Fix | Status |
+|-------|---------------|--------|
+| TF accuracy collapses late in training | Two-stage freeze | ❌ Feature drift |
+| Multi-objective trade-off | Loss reweighting | ❌ Fundamental conflict |
+| 50 TF classes too many | Reduce to 25 | ⚠️ Still degrades |
+
+### Decision: Move to Real ENCODE Data
+
+**Rationale:**
+1. **BPNet precedent** - Published in Nature Genetics with only 4 TFs
+2. **Real data is different** - 1 TF per ChIP-seq experiment (no 25-class problem)
+3. **Diminishing returns** - 2 weeks on synthetic, core architecture validated
+4. **BEACON's value is interpretability**, not profile prediction accuracy
 
 ---
 
 ## Output Files
+
+### Easy Synthetic (Best)
+```
+/home/bcheng/beacon/outputs/beacon_20260116_051830/best_model.pt
+```
+
+### Hard Synthetic
+```
+/home/bcheng/beacon/outputs/beacon_20260118_061201/
+```
 
 ### Curriculum Training V1
 ```
@@ -490,13 +562,5 @@ The model cannot optimize all three objectives simultaneously. As profile recons
 /home/bcheng/beacon/outputs/hard_v2_test/
 /home/bcheng/beacon/outputs/long_overlap_test/
 /home/bcheng/beacon/outputs/medium_tf_test/
+/home/bcheng/beacon/outputs/twostage_test/
 ```
-
----
-
-## Next Steps
-
-1. **Decision Point:** Choose path forward based on MEDIUM_TF results
-2. **If accepting current results:** Proceed to real ENCODE data with epoch 26 checkpoint
-3. **If fixing trade-off:** Implement two-stage training or loss reweighting
-4. **Long-term:** Consider hierarchical TF classification for 50+ TF scenarios
