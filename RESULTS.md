@@ -692,6 +692,53 @@ This is a **representation drift** problem, not a **weight drift** problem.
 
 ---
 
+### Phase 3B: Multi-TF Fair Comparison — BEACON (1 model) vs BPNet (7 models)
+
+**Date:** January 30, 2026
+
+**Objective:** Fair comparison — train 7 separate BPNet models (one per TF) and compare per-TF profile prediction against BEACON's single multi-TF model.
+
+#### Per-TF Profile Pearson Correlation
+
+| TF | BEACON | BPNet | Δ | Winner |
+|----|--------|-------|---|--------|
+| **CTCF** | 0.920 | 0.906 | +0.014 | BEACON |
+| **GATA1** | 0.846 | 0.779 | +0.067 | BEACON |
+| **TAL1** | 0.963 | 0.787 | +0.177 | BEACON |
+| **MYC** | 0.819 | 0.668 | +0.151 | BEACON |
+| **MAX** | 0.878 | 0.774 | +0.104 | BEACON |
+| **SPI1** | 0.940 | 0.914 | +0.026 | BEACON |
+| **CEBPB** | 0.940 | 0.864 | +0.077 | BEACON |
+| **Mean** | **0.901** | **0.813** | **+0.088** | **BEACON** |
+
+**BEACON wins 7/7 TFs. Mean improvement: +8.8%**
+
+#### Efficiency Comparison
+
+| Aspect | BEACON | BPNet (×7) |
+|--------|--------|------------|
+| Models needed | **1** | 7 |
+| Parameters | 851K | 997K (7 × 142K) |
+| Training time | ~2 hrs | ~8 min* |
+| TF identity | **Native** | Cannot provide |
+| Binding site detection | **98.4% F1** | Needs post-hoc pipeline |
+| Interpretable slots | **Yes** | No |
+| Mean Profile r | **0.901** | 0.813 |
+
+*BPNet trains faster per model due to smaller dataset per TF, but requires 7 separate training runs and cannot provide TF identity or binding site information.
+
+#### Key Finding
+
+**A single BEACON model outperforms 7 dedicated BPNet models** while providing TF identity, binding site detection, and interpretable slot attention — capabilities that BPNet fundamentally cannot offer. The largest improvements are on bHLH family TFs (TAL1 +0.177, MYC +0.151), where BEACON's multi-task learning benefits from shared motif representations.
+
+#### Output Files
+```
+/home/bcheng/beacon/outputs/bpnet_multi_tf/bpnet_multi_20260130_195211/
+/home/bcheng/beacon/outputs/multi_tf_k562/multi_tf_k562_20260128_172512/bpnet_comparison/
+```
+
+---
+
 ## Phase 2 Summary
 
 ### Achievements
