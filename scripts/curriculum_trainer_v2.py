@@ -56,10 +56,34 @@ class ExperimentConfig:
     use_overlap_loss: bool = True
     overlap_loss_weight: float = 0.5
     min_slot_distance: float = 0.05  # Normalized distance (5% of sequence)
+    # V3: Two-stage training parameters
+    freeze_tf_epoch: int = 0  # Epoch to freeze TF head (0 = never freeze)
 
 
 # V2: Added experiment I for overlap verification
 EXPERIMENTS = {
+    # V3: Two-stage training (freeze TF head after epoch 30)
+    "TWOSTAGE_25TF": ExperimentConfig(
+        name="TWOSTAGE_25TF",
+        n_tfs=25,
+        min_sites=3,
+        max_sites=8,
+        allow_overlap=True,
+        noise_sigma=0.15,
+        seq_length=2000,
+        n_train=100000,
+        n_val=10000,
+        n_test=10000,
+        n_slots=16,
+        epochs=100,
+        batch_size=32,
+        lr=1e-4,
+        description="Two-stage: freeze TF head at epoch 30 to preserve TF accuracy",
+        use_overlap_loss=True,
+        overlap_loss_weight=0.5,
+        min_slot_distance=0.03,
+        freeze_tf_epoch=30,  # NEW: Freeze TF head after this epoch
+    ),
     # PRIORITY: Medium TF test (25 TFs - realistic)
     "MEDIUM_TF": ExperimentConfig(
         name="MEDIUM_TF",
@@ -621,6 +645,8 @@ class CurriculumTrainerV2:
                 f"overlap={config.allow_overlap}, noise={config.noise_sigma}")
         self.log(f"V2 Settings: overlap_loss={config.use_overlap_loss}, "
                 f"weight={config.overlap_loss_weight}, min_dist={config.min_slot_distance}")
+        if config.freeze_tf_epoch > 0:
+            self.log(f"V3 Two-Stage: Will freeze TF head at epoch {config.freeze_tf_epoch}")
         self.log("=" * 70)
 
         with open(exp_dir / "config.json", "w") as f:
@@ -653,9 +679,36 @@ class CurriculumTrainerV2:
 
         best_val_f1 = 0.0
         best_epoch = 0
+        best_tf_acc = 0.0
+        best_tf_epoch = 0
+        tf_frozen = False
         start_time = time.time()
 
         for epoch in range(config.epochs):
+            # V3: Two-stage training - freeze TF head at specified epoch
+            if config.freeze_tf_epoch > 0 and epoch == config.freeze_tf_epoch and not tf_frozen:
+                self.log("=" * 70)
+                self.log(f"TWO-STAGE: Freezing TF head at epoch {epoch}")
+                self.log(f"  Best TF Acc so far: {best_tf_acc:.4f} (epoch {best_tf_epoch})")
+                self.log(f"  Current Site F1: {history['val_metrics'][-1].get('site_f1', 0):.4f}")
+                self.log(f"  Current Profile r: {history['val_metrics'][-1].get('profile_pearson', 0):.4f}")
+                self.log("  TF head parameters frozen - will preserve TF classification ability")
+                self.log("=" * 70)
+
+                # Get the base model (handle DataParallel)
+                base_model = model.module if hasattr(model, 'module') else model
+
+                # Freeze TF head
+                for param in base_model.tf_head.parameters():
+                    param.requires_grad = False
+
+                # Log parameter counts
+                trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+                frozen = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+                self.log(f"  Trainable params: {trainable:,} | Frozen params: {frozen:,}")
+
+                tf_frozen = True
+
             model.train()
             epoch_losses = []
 
@@ -686,10 +739,18 @@ class CurriculumTrainerV2:
             val_metrics = self.evaluate(model, val_loader, config)
             history["val_metrics"].append(val_metrics)
 
-            self.log(f"Epoch {epoch+1}/{config.epochs} | Train Loss: {avg_loss:.4f} | "
+            # Log with frozen indicator if applicable
+            frozen_str = " [TF FROZEN]" if tf_frozen else ""
+            self.log(f"Epoch {epoch+1}/{config.epochs}{frozen_str} | Train Loss: {avg_loss:.4f} | "
                     f"Val Site F1: {val_metrics.get('site_f1', 0):.4f} | "
                     f"Val TF Acc: {val_metrics.get('tf_accuracy', 0):.4f} | "
                     f"Val Profile r: {val_metrics.get('profile_pearson', 0):.4f}")
+
+            # Track best TF accuracy (for two-stage training)
+            current_tf_acc = val_metrics.get('tf_accuracy', 0)
+            if current_tf_acc > best_tf_acc:
+                best_tf_acc = current_tf_acc
+                best_tf_epoch = epoch
 
             if val_metrics.get("site_f1", 0) > best_val_f1:
                 best_val_f1 = val_metrics.get("site_f1", 0)
@@ -705,6 +766,9 @@ class CurriculumTrainerV2:
             "config": asdict(config),
             "best_epoch": best_epoch,
             "best_val_f1": best_val_f1,
+            "best_tf_acc": best_tf_acc,
+            "best_tf_epoch": best_tf_epoch,
+            "tf_frozen_at_epoch": config.freeze_tf_epoch if tf_frozen else None,
             "training_time_seconds": elapsed,
             "test_metrics": test_metrics,
             "history": history,
@@ -716,7 +780,10 @@ class CurriculumTrainerV2:
         self.log("-" * 70)
         self.log(f"FINAL RESULTS: {config.name}")
         self.log(f"  Training time: {elapsed/60:.1f} minutes")
-        self.log(f"  Best epoch: {best_epoch + 1}")
+        self.log(f"  Best Site F1 epoch: {best_epoch + 1}")
+        self.log(f"  Best TF Acc: {best_tf_acc:.4f} (epoch {best_tf_epoch + 1})")
+        if tf_frozen:
+            self.log(f"  TF head frozen at: epoch {config.freeze_tf_epoch}")
         self.log(f"  Test Site F1: {test_metrics.get('site_f1', 0):.4f}")
         self.log(f"  Test TF Accuracy: {test_metrics.get('tf_accuracy', 0):.4f}")
         self.log(f"  Test Profile Pearson: {test_metrics.get('profile_pearson', 0):.4f}")

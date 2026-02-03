@@ -484,11 +484,12 @@ class HungarianMatchingLoss(nn.Module):
 
         batch_size = pred_positions.shape[0]
         n_slots = pred_positions.shape[1]
-        n_targets = target_positions.shape[1]
+        device = pred_positions.device
 
-        total_pos_loss = 0.0
-        total_tf_loss = 0.0
-        total_occ_loss = 0.0
+        zero = torch.tensor(0.0, device=device)
+        total_pos_loss = zero.clone()
+        total_tf_loss = zero.clone()
+        total_occ_loss = zero.clone()
         n_matched = 0
 
         for b in range(batch_size):
@@ -497,6 +498,8 @@ class HungarianMatchingLoss(nn.Module):
             n_valid = valid_mask.sum().item()
 
             if n_valid == 0:
+                # All slots should be empty
+                total_occ_loss = total_occ_loss + (pred_occupancy[b, :, 0] ** 2).mean()
                 continue
 
             valid_positions = target_positions[b, valid_mask]  # [n_valid]
@@ -505,16 +508,16 @@ class HungarianMatchingLoss(nn.Module):
             # Compute cost matrix [K, n_valid]
             pred_mu = pred_positions[b, :, 0]  # [K]
 
-            # Position cost
-            pos_cost = (pred_mu.unsqueeze(1) - valid_positions.unsqueeze(0)) ** 2
+            # Position cost (clamped to prevent explosion early in training)
+            pos_cost = ((pred_mu.unsqueeze(1) - valid_positions.unsqueeze(0)) ** 2).clamp(max=10.0)
 
-            # TF cost (negative log prob of correct class)
-            tf_probs = F.softmax(pred_tf_logits[b], dim=-1)  # [K, N_TFs]
-            tf_cost = -torch.log(tf_probs[:, valid_tfs.long()] + 1e-6)  # [K, n_valid]
+            # TF cost (negative log prob of correct class, clamped)
+            tf_log_probs = F.log_softmax(pred_tf_logits[b], dim=-1)  # [K, N_TFs]
+            tf_cost = (-tf_log_probs[:, valid_tfs.long()]).clamp(max=10.0)  # [K, n_valid]
 
             # Occupancy cost (prefer high occupancy slots)
-            occ_cost = 1 - pred_occupancy[b].squeeze(-1).unsqueeze(1)  # [K, 1] -> [K, n_valid]
-            occ_cost = occ_cost.expand(-1, n_valid)
+            occ = pred_occupancy[b, :, 0]  # [K]
+            occ_cost = (1 - occ).unsqueeze(1).expand(-1, n_valid)
 
             # Combined cost
             cost_matrix = (
@@ -523,27 +526,28 @@ class HungarianMatchingLoss(nn.Module):
                 self.occupancy_weight * occ_cost
             )
 
-            # Hungarian matching
-            cost_np = cost_matrix.detach().cpu().numpy()
+            # Hungarian matching (no grad — just finds assignment)
+            cost_np = cost_matrix.detach().cpu().float().numpy()
             row_ind, col_ind = linear_sum_assignment(cost_np)
 
-            # Compute losses on matched pairs
-            for slot_idx, target_idx in zip(row_ind, col_ind):
-                # Position loss
-                total_pos_loss += pos_cost[slot_idx, target_idx]
+            # Compute losses on matched pairs using tensor indexing
+            row_t = torch.tensor(row_ind, device=device, dtype=torch.long)
+            col_t = torch.tensor(col_ind, device=device, dtype=torch.long)
 
-                # TF loss
-                total_tf_loss += tf_cost[slot_idx, target_idx]
+            total_pos_loss = total_pos_loss + pos_cost[row_t, col_t].sum()
+            total_tf_loss = total_tf_loss + tf_cost[row_t, col_t].sum()
 
-                # Occupancy should be high for matched slots
-                total_occ_loss += (1 - pred_occupancy[b, slot_idx, 0]) ** 2
+            # Matched slots should have high occupancy
+            total_occ_loss = total_occ_loss + ((1 - occ[row_t]) ** 2).sum()
 
             n_matched += len(row_ind)
 
             # Unmatched slots should have low occupancy
-            unmatched_slots = list(set(range(n_slots)) - set(row_ind))
-            for slot_idx in unmatched_slots:
-                total_occ_loss += pred_occupancy[b, slot_idx, 0] ** 2
+            matched_mask = torch.zeros(n_slots, dtype=torch.bool, device=device)
+            matched_mask[row_t] = True
+            unmatched_occ = occ[~matched_mask]
+            if unmatched_occ.numel() > 0:
+                total_occ_loss = total_occ_loss + (unmatched_occ ** 2).sum()
 
         # Average losses
         if n_matched > 0:
@@ -565,6 +569,71 @@ class HungarianMatchingLoss(nn.Module):
         }
 
 
+class SlotCountLoss(nn.Module):
+    """
+    Penalizes mismatch between number of active slots and target binding sites.
+
+    Uses a soft count (sum of occupancies) to remain differentiable.
+    """
+
+    def forward(
+        self,
+        pred_occupancy: torch.Tensor,
+        target_sites: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Args:
+            pred_occupancy: [B, K, 1] predicted occupancy
+            target_sites: [B, K, 3] (position, tf_id, occupancy)
+        Returns:
+            Scalar loss
+        """
+        pred_occ = pred_occupancy.squeeze(-1)  # [B, K]
+        target_occ = target_sites[..., 2]  # [B, K]
+
+        # Soft count of predicted active slots
+        pred_count = pred_occ.sum(dim=-1)  # [B]
+
+        # Count target sites (occupancy > 0.1)
+        target_count = (target_occ > 0.1).float().sum(dim=-1)  # [B]
+
+        # MSE between counts
+        return F.mse_loss(pred_count, target_count)
+
+
+class AttentionLoadBalancingLoss(nn.Module):
+    """
+    Encourages attention mass to be distributed across multiple slots.
+
+    Unlike SlotDiversityLoss which penalizes overlap, this penalizes
+    concentration — when most attention mass goes to a single slot.
+    """
+
+    def forward(self, attention: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            attention: [B, K, L] slot attention weights
+        Returns:
+            Scalar loss (lower = more balanced)
+        """
+        # Sum attention per slot across positions: [B, K]
+        slot_mass = attention.sum(dim=-1)
+
+        # Normalize to get slot usage distribution: [B, K]
+        slot_dist = slot_mass / (slot_mass.sum(dim=-1, keepdim=True) + 1e-6)
+
+        # Negative entropy: high when concentrated on few slots
+        log_dist = torch.log(slot_dist + 1e-6)
+        neg_entropy = (slot_dist * log_dist).sum(dim=-1)  # [B]
+
+        # Max entropy for K slots = log(K), normalize
+        n_slots = attention.shape[1]
+        max_entropy = math.log(n_slots)
+
+        # Loss = normalized negative entropy (0 = uniform, 1 = single slot)
+        return (neg_entropy / max_entropy + 1.0).mean()
+
+
 class BEACONLoss(nn.Module):
     """
     Combined loss function for BEACON training.
@@ -577,6 +646,9 @@ class BEACONLoss(nn.Module):
     5. Slot diversity regularization
     6. Slot orthogonality regularization
     7. Binding site supervision (from pseudo-labels)
+    8. Hungarian matching (optional, for multi-TF training)
+    9. Slot count loss (optional, for multi-TF training)
+    10. Attention load balancing (optional, for multi-TF training)
     """
 
     def __init__(
@@ -592,6 +664,10 @@ class BEACONLoss(nn.Module):
         diversity_weight: float = 0.1,
         orthogonality_weight: float = 0.1,
         site_supervision_weight: float = 0.5,
+        # Multi-TF specific
+        use_hungarian: bool = False,
+        slot_count_weight: float = 0.0,
+        load_balancing_weight: float = 0.0,
         # Sub-loss parameters
         label_smoothing: float = 0.1,
         sparsity_weight: float = 0.1,
@@ -605,6 +681,9 @@ class BEACONLoss(nn.Module):
         self.diversity_weight = diversity_weight
         self.orthogonality_weight = orthogonality_weight
         self.site_supervision_weight = site_supervision_weight
+        self.use_hungarian = use_hungarian
+        self.slot_count_weight = slot_count_weight
+        self.load_balancing_weight = load_balancing_weight
 
         # Individual loss components
         self.profile_loss = ProfileReconstructionLoss()
@@ -614,6 +693,13 @@ class BEACONLoss(nn.Module):
         self.diversity_loss = SlotDiversityLoss()
         self.orthogonality_loss = SlotOrthogonalityLoss()
         self.site_supervision_loss = BindingSiteSupervisionLoss()
+
+        if use_hungarian:
+            self.hungarian_loss = HungarianMatchingLoss()
+        if slot_count_weight > 0:
+            self.slot_count_loss = SlotCountLoss()
+        if load_balancing_weight > 0:
+            self.load_balancing_loss = AttentionLoadBalancingLoss()
 
     def forward(
         self,
@@ -695,18 +781,53 @@ class BEACONLoss(nn.Module):
 
         # Binding site supervision loss (using pseudo-labels from profiles)
         if "binding_sites" in targets:
-            site_losses = self.site_supervision_loss(
-                pred_positions=outputs["positions"],
-                pred_occupancy=outputs["occupancy"],
-                pred_tf_logits=outputs["tf_logits"],
-                target_sites=targets["binding_sites"],
-            )
-            losses["site_position"] = site_losses["position_loss"]
-            losses["site_occupancy"] = site_losses["occupancy_loss"]
-            losses["site_tf"] = site_losses["tf_loss"]
-            losses["site_supervision"] = site_losses["total"]
+            if self.use_hungarian:
+                # Use Hungarian matching for optimal slot-to-site assignment
+                target_sites = targets["binding_sites"]
+                target_positions = target_sites[..., 0]  # [B, K]
+                target_tfs = target_sites[..., 1]  # [B, K]
+                target_occ = target_sites[..., 2]  # [B, K]
+                target_mask = (target_occ > 0.1).float()
+
+                hungarian_losses = self.hungarian_loss(
+                    pred_positions=outputs["positions"],
+                    pred_tf_logits=outputs["tf_logits"],
+                    pred_occupancy=outputs["occupancy"],
+                    target_positions=target_positions,
+                    target_tfs=target_tfs,
+                    target_mask=target_mask,
+                )
+                losses["site_position"] = hungarian_losses["position_loss"]
+                losses["site_occupancy"] = hungarian_losses["occupancy_loss"]
+                losses["site_tf"] = hungarian_losses["tf_loss"]
+                losses["site_supervision"] = hungarian_losses["total"]
+            else:
+                site_losses = self.site_supervision_loss(
+                    pred_positions=outputs["positions"],
+                    pred_occupancy=outputs["occupancy"],
+                    pred_tf_logits=outputs["tf_logits"],
+                    target_sites=targets["binding_sites"],
+                )
+                losses["site_position"] = site_losses["position_loss"]
+                losses["site_occupancy"] = site_losses["occupancy_loss"]
+                losses["site_tf"] = site_losses["tf_loss"]
+                losses["site_supervision"] = site_losses["total"]
         else:
             losses["site_supervision"] = torch.tensor(0.0, device=outputs["profile"].device)
+
+        # Slot count loss (penalize wrong number of active slots)
+        if self.slot_count_weight > 0 and "binding_sites" in targets:
+            losses["slot_count"] = self.slot_count_loss(
+                outputs["occupancy"], targets["binding_sites"]
+            )
+        else:
+            losses["slot_count"] = torch.tensor(0.0, device=outputs["profile"].device)
+
+        # Attention load balancing (penalize attention concentration)
+        if self.load_balancing_weight > 0 and "attention" in outputs:
+            losses["load_balancing"] = self.load_balancing_loss(outputs["attention"])
+        else:
+            losses["load_balancing"] = torch.tensor(0.0, device=outputs["profile"].device)
 
         # Total weighted loss
         total = (
@@ -716,7 +837,9 @@ class BEACONLoss(nn.Module):
             self.occupancy_weight * losses["occupancy"] +
             self.diversity_weight * losses["diversity"] +
             self.orthogonality_weight * losses["orthogonality"] +
-            self.site_supervision_weight * losses["site_supervision"]
+            self.site_supervision_weight * losses["site_supervision"] +
+            self.slot_count_weight * losses["slot_count"] +
+            self.load_balancing_weight * losses["load_balancing"]
         )
 
         losses["total"] = total

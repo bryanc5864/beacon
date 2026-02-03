@@ -39,6 +39,7 @@ class SlotAttention(nn.Module):
         hidden_dim: int = 512,
         epsilon: float = 1e-8,
         learnable_slots: bool = True,
+        attention_mode: str = "competitive",
     ):
         """
         Args:
@@ -49,6 +50,8 @@ class SlotAttention(nn.Module):
             hidden_dim: Hidden dimension for slot update MLP
             epsilon: Small constant for numerical stability
             learnable_slots: Whether to use learnable slot initialization
+            attention_mode: "competitive" (softmax over slots, original) or
+                          "independent" (softmax over positions, for multi-TF)
         """
         super().__init__()
         self.input_dim = input_dim
@@ -56,6 +59,7 @@ class SlotAttention(nn.Module):
         self.n_slots = n_slots
         self.n_iterations = n_iterations
         self.epsilon = epsilon
+        self.attention_mode = attention_mode
 
         # Slot initialization
         if learnable_slots:
@@ -159,16 +163,25 @@ class SlotAttention(nn.Module):
             # Attention scores: [B, K, L]
             attn_logits = torch.einsum("bkd,bld->bkl", q, k) * self.scale
 
-            # Softmax over slots (competition)
-            # Each position attends to slots, slots compete for positions
-            attn = F.softmax(attn_logits, dim=1)  # [B, K, L]
+            if self.attention_mode == "competitive":
+                # Original: softmax over slots — each position assigned to one slot
+                attn = F.softmax(attn_logits, dim=1)  # [B, K, L]
 
-            if return_attention:
-                all_attention.append(attn)
+                if return_attention:
+                    all_attention.append(attn)
+
+                # Normalize attention over positions for weighted mean
+                attn_norm = attn / (attn.sum(dim=-1, keepdim=True) + self.epsilon)
+            else:
+                # Independent: softmax over positions — each slot attends independently
+                attn = F.softmax(attn_logits, dim=-1)  # [B, K, L]
+
+                if return_attention:
+                    all_attention.append(attn)
+
+                attn_norm = attn  # Already normalized over positions
 
             # Weighted mean of values
-            # Normalize attention over positions
-            attn_norm = attn / (attn.sum(dim=-1, keepdim=True) + self.epsilon)
             updates = torch.einsum("bkl,bld->bkd", attn_norm, v)  # [B, K, D_slot]
 
             # GRU update

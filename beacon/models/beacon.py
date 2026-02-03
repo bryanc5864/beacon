@@ -50,6 +50,7 @@ class BEACON(nn.Module):
         slot_dim: int = 256,
         n_iterations: int = 3,
         slot_type: str = "standard",  # "standard", "pwm_grounded", "position_aware"
+        attention_mode: str = "competitive",  # "competitive" or "independent"
         # Output parameters
         n_tfs: int = 100,
         position_mode: str = "gaussian",
@@ -93,6 +94,7 @@ class BEACON(nn.Module):
             n_slots=n_slots,
             n_iterations=n_iterations,
             pwm_embeddings=pwm_embeddings,
+            attention_mode=attention_mode,
         )
 
         # Output heads
@@ -169,6 +171,7 @@ class BEACON(nn.Module):
         n_slots: int,
         n_iterations: int,
         pwm_embeddings: Optional[torch.Tensor],
+        attention_mode: str = "competitive",
     ) -> nn.Module:
         """Build the slot attention module."""
         if slot_type == "standard":
@@ -177,6 +180,7 @@ class BEACON(nn.Module):
                 slot_dim=slot_dim,
                 n_slots=n_slots,
                 n_iterations=n_iterations,
+                attention_mode=attention_mode,
             )
         elif slot_type == "pwm_grounded":
             return PWMGroundedSlotAttention(
