@@ -1,0 +1,96 @@
+{
+  "description": "TF panel definitions for BEACON multi-cell-line experiments",
+  "panels": {
+    "7tf": {
+      "description": "7 TFs shared across cell lines for cross-cell comparison",
+      "tfs": ["CTCF", "MYC", "MAX", "CEBPB", "REST", "YY1", "NRF1"],
+      "notes": "Selected for availability across K562, HepG2, and WTC11"
+    },
+    "20tf": {
+      "description": "Extended panel of 20 TFs covering major families",
+      "tfs": [
+        "CTCF", "GATA1", "TAL1", "MYC", "MAX", "SPI1", "CEBPB",
+        "REST", "YY1", "NRF1", "JUND", "FOS", "ATF3", "MAFK",
+        "BACH1", "NFE2L2", "ELF1", "GABPA", "USF1", "USF2"
+      ],
+      "families": {
+        "zinc_finger": ["CTCF", "REST", "YY1"],
+        "gata": ["GATA1"],
+        "bhlh": ["TAL1", "MYC", "MAX", "USF1", "USF2"],
+        "ets": ["SPI1", "ELF1", "GABPA"],
+        "bzip": ["CEBPB", "JUND", "FOS", "ATF3", "MAFK", "BACH1", "NFE2L2", "NRF1"]
+      }
+    }
+  },
+  "cell_lines": {
+    "K562": {
+      "biosample_ontology": "K562",
+      "7tf": ["CTCF", "MYC", "MAX", "CEBPB", "REST", "YY1", "NRF1"],
+      "20tf": [
+        "CTCF", "GATA1", "TAL1", "MYC", "MAX", "SPI1", "CEBPB",
+        "REST", "YY1", "NRF1", "JUND", "FOS", "ATF3", "MAFK",
+        "BACH1", "NFE2L2", "ELF1", "GABPA", "USF1", "USF2"
+      ],
+      "original_7tf": ["CTCF", "GATA1", "TAL1", "MYC", "MAX", "SPI1", "CEBPB"]
+    },
+    "HepG2": {
+      "biosample_ontology": "HepG2",
+      "7tf": ["CTCF", "MYC", "MAX", "CEBPB", "REST", "YY1", "NRF1"],
+      "20tf": [
+        "CTCF", "MYC", "MAX", "CEBPB", "REST", "YY1", "NRF1",
+        "JUND", "FOS", "ATF3", "MAFK", "BACH1", "NFE2L2",
+        "ELF1", "GABPA", "USF1", "USF2", "HNF4A", "FOXA1", "FOXA2"
+      ],
+      "notes": "HepG2-specific: includes liver TFs HNF4A, FOXA1, FOXA2"
+    },
+    "WTC11": {
+      "biosample_ontology": "WTC11",
+      "7tf": ["CTCF", "MYC", "MAX", "CEBPB", "REST", "YY1", "NRF1"],
+      "20tf": [
+        "CTCF", "MYC", "MAX", "CEBPB", "REST", "YY1", "NRF1",
+        "JUND", "FOS", "ATF3", "MAFK", "BACH1", "NFE2L2",
+        "ELF1", "GABPA", "USF1", "USF2", "SOX2", "NANOG", "POU5F1"
+      ],
+      "notes": "WTC11-specific: includes pluripotency TFs SOX2, NANOG, POU5F1"
+    }
+  },
+  "datasets": {
+    "multi_tf_k562_7tf": {
+      "cell_line": "K562",
+      "panel": "original_7tf",
+      "output_dir": "data/processed/multi_tf_k562"
+    },
+    "multi_tf_k562_20tf": {
+      "cell_line": "K562",
+      "panel": "20tf",
+      "output_dir": "data/processed/multi_tf_k562_20tf"
+    },
+    "multi_tf_hepg2_7tf": {
+      "cell_line": "HepG2",
+      "panel": "7tf",
+      "output_dir": "data/processed/multi_tf_hepg2_7tf"
+    },
+    "multi_tf_hepg2_20tf": {
+      "cell_line": "HepG2",
+      "panel": "20tf",
+      "output_dir": "data/processed/multi_tf_hepg2_20tf"
+    },
+    "multi_tf_wtc11_7tf": {
+      "cell_line": "WTC11",
+      "panel": "7tf",
+      "output_dir": "data/processed/multi_tf_wtc11_7tf"
+    },
+    "multi_tf_wtc11_20tf": {
+      "cell_line": "WTC11",
+      "panel": "20tf",
+      "output_dir": "data/processed/multi_tf_wtc11_20tf"
+    }
+  },
+  "chromosome_splits": {
+    "train": ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8",
+              "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15",
+              "chr16", "chr17"],
+    "val": ["chr18", "chr19"],
+    "test": ["chr20", "chr21", "chr22", "chrX"]
+  }
+}

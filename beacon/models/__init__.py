@@ -7,7 +7,14 @@ Binding Event Attention-based Compositional Object Network
 from .backbone import ConvBackbone, DilatedConvBackbone
 from .positional import HelicalPositionalEncoding, SinusoidalPositionalEncoding
 from .slot_attention import SlotAttention
-from .heads import PositionHead, TFIdentityHead, OccupancyHead, ProfileHead
+from .heads import (
+    PositionHead,
+    TFIdentityHead,
+    OccupancyHead,
+    ProfileHead,
+    AttributionHead,
+    MotifEmbeddingHead,
+)
 from .beacon import BEACON, BEACONSmall, BEACONBase, BEACONLarge
 from .losses import (
     BEACONLoss,
@@ -15,6 +22,12 @@ from .losses import (
     SlotDiversityLoss,
     SlotOrthogonalityLoss,
     BindingSiteSupervisionLoss,
+    AnchorLoss,
+    ImportanceSupervisionLoss,
+    PrototypeDiversityLoss,
+    ContrastiveTFEmbeddingLoss,
+    PerTFDifficultyLoss,
+    MultiScaleImportanceLoss,
 )
 
 __all__ = [
@@ -27,6 +40,8 @@ __all__ = [
     "TFIdentityHead",
     "OccupancyHead",
     "ProfileHead",
+    "AttributionHead",
+    "MotifEmbeddingHead",
     "BEACON",
     "BEACONSmall",
     "BEACONBase",
@@ -36,4 +51,10 @@ __all__ = [
     "SlotDiversityLoss",
     "SlotOrthogonalityLoss",
     "BindingSiteSupervisionLoss",
+    "AnchorLoss",
+    "ImportanceSupervisionLoss",
+    "PrototypeDiversityLoss",
+    "ContrastiveTFEmbeddingLoss",
+    "PerTFDifficultyLoss",
+    "MultiScaleImportanceLoss",
 ]

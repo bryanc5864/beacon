@@ -56,7 +56,7 @@ VAL_CHROMS = ["chr18", "chr19"]
 TEST_CHROMS = ["chr20", "chr21", "chr22", "chrX"]
 ALL_CHROMS = TRAIN_CHROMS + VAL_CHROMS + TEST_CHROMS
 
-TF_PANEL = ["CTCF", "GATA1", "TAL1", "MYC", "MAX", "SPI1", "CEBPB"]
+DEFAULT_TF_PANEL = ["CTCF", "GATA1", "TAL1", "MYC", "MAX", "SPI1", "CEBPB"]
 TF_FAMILIES = {
     "CTCF": "Zinc finger",
     "GATA1": "GATA",
@@ -65,6 +65,25 @@ TF_FAMILIES = {
     "MAX": "bHLH",
     "SPI1": "ETS",
     "CEBPB": "bZIP",
+    "REST": "Zinc finger",
+    "YY1": "Zinc finger",
+    "NRF1": "bZIP",
+    "JUND": "bZIP",
+    "FOS": "bZIP",
+    "ATF3": "bZIP",
+    "MAFK": "bZIP",
+    "BACH1": "bZIP",
+    "NFE2L2": "bZIP",
+    "ELF1": "ETS",
+    "GABPA": "ETS",
+    "USF1": "bHLH",
+    "USF2": "bHLH",
+    "HNF4A": "Nuclear receptor",
+    "FOXA1": "Forkhead",
+    "FOXA2": "Forkhead",
+    "SOX2": "HMG",
+    "NANOG": "Homeobox",
+    "POU5F1": "POU",
 }
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -87,28 +106,68 @@ def one_hot_encode(sequence):
 
 def parse_narrowpeak(filepath):
     peaks = []
-    opener = gzip.open if str(filepath).endswith(".gz") else open
-    mode = "rt" if str(filepath).endswith(".gz") else "r"
+    filepath = str(filepath)
+    if filepath.endswith(".bigBed"):
+        return parse_bigbed(filepath)
+    opener = gzip.open if filepath.endswith(".gz") else open
+    mode = "rt" if filepath.endswith(".gz") else "r"
     with opener(filepath, mode) as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#") or line.startswith("track"):
                 continue
             fields = line.split("\t")
-            if len(fields) < 10:
+            if len(fields) < 3:
                 continue
             try:
+                chrom = fields[0]
+                start = int(fields[1])
+                end = int(fields[2])
+                signal_value = float(fields[6]) if len(fields) > 6 and fields[6] != "." else 0.0
+                summit_offset = int(fields[9]) if len(fields) > 9 and fields[9] != "." else (end - start) // 2
                 peak = {
-                    "chrom": fields[0],
-                    "start": int(fields[1]),
-                    "end": int(fields[2]),
-                    "signal_value": float(fields[6]) if fields[6] != "." else 0.0,
-                    "summit_offset": int(fields[9]) if fields[9] != "." else (int(fields[2]) - int(fields[1])) // 2,
+                    "chrom": chrom,
+                    "start": start,
+                    "end": end,
+                    "signal_value": signal_value,
+                    "summit_offset": summit_offset,
                 }
                 peak["summit"] = peak["start"] + peak["summit_offset"]
                 peaks.append(peak)
             except (ValueError, IndexError):
                 continue
+    return peaks
+
+
+def parse_bigbed(filepath):
+    """Parse a bigBed file using pyBigWig."""
+    peaks = []
+    try:
+        bb = pyBigWig.open(str(filepath))
+        chroms = bb.chroms()
+        for chrom in chroms:
+            entries = bb.entries(chrom, 0, chroms[chrom])
+            if not entries:
+                continue
+            for start, end, rest in entries:
+                fields = rest.split("\t")
+                try:
+                    signal_value = float(fields[3]) if len(fields) > 3 and fields[3] != "." else 0.0
+                    summit_offset = int(fields[6]) if len(fields) > 6 and fields[6] != "." else (end - start) // 2
+                    peak = {
+                        "chrom": chrom,
+                        "start": start,
+                        "end": end,
+                        "signal_value": signal_value,
+                        "summit_offset": summit_offset,
+                    }
+                    peak["summit"] = peak["start"] + peak["summit_offset"]
+                    peaks.append(peak)
+                except (ValueError, IndexError):
+                    continue
+        bb.close()
+    except Exception as e:
+        logger.warning(f"  Could not parse bigBed {filepath}: {e}")
     return peaks
 
 
@@ -144,7 +203,7 @@ def create_gaussian_profile(seq_length, peak_position, sigma=30.0):
 class MultiTFDataPreparer:
     def __init__(self, genome_path, data_dir, output_dir, blacklist_path=None,
                  seq_length=2000, max_peaks_per_tf=20000, min_signal=0.0,
-                 balance_tfs=True):
+                 balance_tfs=True, tf_list=None):
         self.genome_path = genome_path
         self.data_dir = data_dir
         self.output_dir = output_dir
@@ -154,14 +213,24 @@ class MultiTFDataPreparer:
         self.max_peaks_per_tf = max_peaks_per_tf
         self.min_signal = min_signal
         self.balance_tfs = balance_tfs
+        self.tf_list = tf_list  # None = auto-discover from data_dir
 
         self.stats = defaultdict(lambda: defaultdict(int))
+
+    @staticmethod
+    def find_peak_files(tf_dir):
+        """Find peak files in a TF directory (narrowPeak, bed.gz, bigBed)."""
+        peak_files = []
+        for pattern in ["*.narrowPeak*", "*.bed.gz", "*.bigBed"]:
+            peak_files.extend(tf_dir.glob(pattern))
+        # Deduplicate
+        return list(set(peak_files))
 
     def run(self):
         start_time = datetime.now()
 
         logger.info("=" * 70)
-        logger.info("Multi-TF K562 Data Preparation for BEACON (Phase 2B)")
+        logger.info("Multi-TF Data Preparation for BEACON")
         logger.info("=" * 70)
         logger.info(f"Genome: {self.genome_path}")
         logger.info(f"Data dir: {self.data_dir}")
@@ -180,21 +249,39 @@ class MultiTFDataPreparer:
         blacklist = load_blacklist(self.blacklist_path)
         logger.info(f"  Blacklist: {sum(len(v) for v in blacklist.values())} regions")
 
+        # Determine TF panel: use provided list, or auto-discover from data dir
+        if self.tf_list:
+            tf_panel = self.tf_list
+            logger.info(f"Using provided TF list: {', '.join(tf_panel)}")
+        else:
+            # Auto-discover: find subdirectories with both peak and signal files
+            tf_panel = []
+            for d in sorted(self.data_dir.iterdir()):
+                if d.is_dir() and d.name not in (".", ".."):
+                    peak_files = self.find_peak_files(d)
+                    signal_files = list(d.glob("*.bigWig")) + list(d.glob("*.bw"))
+                    if peak_files and signal_files:
+                        tf_panel.append(d.name)
+            logger.info(f"Auto-discovered {len(tf_panel)} TFs: {', '.join(tf_panel)}")
+
         # Discover and process each TF
         tf_vocab = []
         available_tfs = []
 
-        for tf in TF_PANEL:
+        for tf in tf_panel:
             tf_dir = self.data_dir / tf
             if not tf_dir.exists():
                 logger.warning(f"  {tf}: directory not found, skipping")
                 continue
 
-            peak_files = list(tf_dir.glob("*.narrowPeak*"))
+            peak_files = self.find_peak_files(tf_dir)
             signal_files = list(tf_dir.glob("*.bigWig")) + list(tf_dir.glob("*.bw"))
 
             if not peak_files:
                 logger.warning(f"  {tf}: no peak files found, skipping")
+                continue
+            if not signal_files:
+                logger.warning(f"  {tf}: no signal files found, skipping")
                 continue
 
             available_tfs.append(tf)
@@ -220,7 +307,7 @@ class MultiTFDataPreparer:
             logger.info(f"{'='*50}")
 
             # Parse peaks
-            peak_files = list(tf_dir.glob("*.narrowPeak*"))
+            peak_files = self.find_peak_files(tf_dir)
             all_peaks = []
             for pf in peak_files:
                 # Resolve symlinks
@@ -456,7 +543,7 @@ class MultiTFDataPreparer:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Prepare multi-TF K562 data for BEACON (Phase 2B)")
+    parser = argparse.ArgumentParser(description="Prepare multi-TF data for BEACON")
     parser.add_argument("--genome", type=Path, default=DEFAULT_GENOME)
     parser.add_argument("--blacklist", type=Path, default=DEFAULT_BLACKLIST)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
@@ -465,7 +552,11 @@ def main():
     parser.add_argument("--max-peaks-per-tf", type=int, default=20000)
     parser.add_argument("--min-signal", type=float, default=0.0)
     parser.add_argument("--no-balance", action="store_true", help="Don't balance TF counts")
+    parser.add_argument("--tfs", type=str, default=None,
+                        help="Comma-separated TF names (default: auto-discover from data-dir)")
     args = parser.parse_args()
+
+    tf_list = args.tfs.split(",") if args.tfs else None
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(args.output_dir / "preparation.log")
@@ -481,6 +572,7 @@ def main():
         max_peaks_per_tf=args.max_peaks_per_tf,
         min_signal=args.min_signal,
         balance_tfs=not args.no_balance,
+        tf_list=tf_list,
     )
 
     success = preparer.run()

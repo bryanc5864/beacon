@@ -18,10 +18,12 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 from .metrics import BEACONMetrics
 from .logger import BEACONLogger
+from .pcgrad import PCGradOptimizer
+from .gradnorm import GradNorm
 
 
 class BEACONTrainer:
@@ -61,6 +63,13 @@ class BEACONTrainer:
         use_tensorboard: bool = True,
         num_slots: int = 16,
         num_tfs: int = 879,
+        # Gradient surgery / loss balancing
+        use_pcgrad: bool = False,
+        use_gradnorm: bool = False,
+        gradnorm_alpha: float = 1.5,
+        gradnorm_loss_names: Optional[list] = None,
+        # Slot utilization tracking
+        track_slot_utilization: bool = True,
     ):
         """
         Args:
@@ -135,7 +144,30 @@ class BEACONTrainer:
             self.scheduler = scheduler
 
         # Setup AMP scaler
-        self.scaler = GradScaler() if self.use_amp else None
+        self.scaler = GradScaler('cuda') if self.use_amp else None
+
+        # PCGrad wrapper
+        self.use_pcgrad = use_pcgrad
+        if use_pcgrad:
+            self.pcgrad = PCGradOptimizer(self.optimizer)
+        else:
+            self.pcgrad = None
+
+        # GradNorm dynamic loss balancing
+        self.use_gradnorm = use_gradnorm
+        if use_gradnorm:
+            loss_names = gradnorm_loss_names or [
+                'profile', 'site_supervision', 'tf_identity',
+            ]
+            self.gradnorm = GradNorm(
+                loss_names=loss_names,
+                alpha=gradnorm_alpha,
+            ).to(self.device)
+        else:
+            self.gradnorm = None
+
+        # Slot utilization tracking
+        self.track_slot_utilization = track_slot_utilization
 
         # Setup logger
         self.output_dir = Path(output_dir)
@@ -269,6 +301,7 @@ class BEACONTrainer:
         epoch_grad_norms = []
         batch_times = []
         samples_processed = 0
+        slot_utilizations = []
 
         epoch_start = time.time()
 
@@ -281,13 +314,43 @@ class BEACONTrainer:
             # Forward pass
             self.optimizer.zero_grad()
 
-            if self.use_amp:
-                with autocast():
+            if self.use_pcgrad:
+                # PCGrad: separate backward per loss
+                if self.use_amp:
+                    with autocast('cuda'):
+                        outputs = self.model(batch['sequence'])
+                        losses = self._compute_losses(outputs, batch)
+                else:
                     outputs = self.model(batch['sequence'])
                     losses = self._compute_losses(outputs, batch)
 
+                # PCGrad handles backward + step internally
+                pcgrad_losses = {k: v for k, v in losses.items() if k != 'total'}
+                grad_norm = self.pcgrad.step(
+                    pcgrad_losses,
+                    scaler=self.scaler if self.use_amp else None,
+                    grad_clip=self.grad_clip,
+                )
+            elif self.use_amp:
+                with autocast('cuda'):
+                    outputs = self.model(batch['sequence'])
+                    losses = self._compute_losses(outputs, batch)
+
+                # GradNorm reweighting
+                if self.gradnorm is not None:
+                    reweighted = self.gradnorm.reweight(losses)
+                    total = sum(reweighted.values())
+                    losses['total'] = total
+
                 # Backward pass with scaling
-                self.scaler.scale(losses['total']).backward()
+                # retain_graph needed when GradNorm will compute grad norms after
+                self.scaler.scale(losses['total']).backward(
+                    retain_graph=(self.gradnorm is not None)
+                )
+
+                # GradNorm weight update (needs graph retained above)
+                if self.gradnorm is not None:
+                    self.gradnorm.update(losses, self.base_model.backbone)
 
                 # Unscale for gradient clipping
                 self.scaler.unscale_(self.optimizer)
@@ -299,9 +362,27 @@ class BEACONTrainer:
                 outputs = self.model(batch['sequence'])
                 losses = self._compute_losses(outputs, batch)
 
+                # GradNorm reweighting
+                if self.gradnorm is not None:
+                    reweighted = self.gradnorm.reweight(losses)
+                    total = sum(reweighted.values())
+                    losses['total'] = total
+
                 losses['total'].backward()
+
+                # GradNorm weight update
+                if self.gradnorm is not None:
+                    self.gradnorm.update(losses, self.base_model.backbone)
+
                 grad_norm = self._clip_gradients()
                 self.optimizer.step()
+
+            # Track slot utilization
+            if self.track_slot_utilization and 'occupancy' in outputs:
+                with torch.no_grad():
+                    occ = outputs['occupancy'].squeeze(-1)
+                    active_ratio = (occ > 0.3).float().mean().item()
+                    slot_utilizations.append(active_ratio)
 
             # Track metrics
             self.global_step += 1
@@ -345,6 +426,15 @@ class BEACONTrainer:
         avg_metrics['samples_per_sec'] = samples_processed / epoch_time
         avg_metrics['epoch_time'] = epoch_time
 
+        if slot_utilizations:
+            avg_metrics['slot_utilization'] = sum(slot_utilizations) / len(slot_utilizations)
+
+        # Log GradNorm weights if active
+        if self.gradnorm is not None:
+            weight_dict = self.gradnorm.get_weight_dict()
+            for name, w in weight_dict.items():
+                avg_metrics[f'gradnorm_w_{name}'] = w
+
         return avg_metrics
 
     def _validate(self) -> Dict[str, float]:
@@ -364,7 +454,7 @@ class BEACONTrainer:
                 batch = self._to_device(batch)
 
                 if self.use_amp:
-                    with autocast():
+                    with autocast('cuda'):
                         outputs = self.model(batch['sequence'])
                         losses = self._compute_losses(outputs, batch)
                 else:
@@ -402,7 +492,7 @@ class BEACONTrainer:
                 batch = self._to_device(batch)
 
                 if self.use_amp:
-                    with autocast():
+                    with autocast('cuda'):
                         outputs = self.model(batch['sequence'])
                         losses = self._compute_losses(outputs, batch)
                 else:
@@ -461,6 +551,10 @@ class BEACONTrainer:
 
         if 'tf_index' in batch:
             targets['tf_index'] = batch['tf_index']
+
+        # Phase 1: gradient importance target for attribution head
+        if 'importance_target' in batch:
+            targets['importance_target'] = batch['importance_target']
 
         # Use the full loss function
         losses = self.loss_fn(outputs, targets)

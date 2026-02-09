@@ -634,6 +634,489 @@ class AttentionLoadBalancingLoss(nn.Module):
         return (neg_entropy / max_entropy + 1.0).mean()
 
 
+class SlotContrastiveLoss(nn.Module):
+    """
+    Supervised contrastive loss on slot embeddings.
+
+    Pulls same-TF slot embeddings together, pushes different-TF apart.
+    Only operates on active (matched) slots.
+    """
+
+    def __init__(self, temperature: float = 0.1):
+        super().__init__()
+        self.temperature = temperature
+
+    def forward(
+        self,
+        slot_embeddings: torch.Tensor,
+        pred_occupancy: torch.Tensor,
+        target_sites: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Args:
+            slot_embeddings: [B, K, D]
+            pred_occupancy: [B, K, 1]
+            target_sites: [B, K, 3] (position, tf_id, occupancy)
+        Returns:
+            Scalar contrastive loss
+        """
+        target_occ = target_sites[..., 2]  # [B, K]
+        target_tfs = target_sites[..., 1].long()  # [B, K]
+
+        # Collect active slot embeddings and their TF labels
+        valid_mask = target_occ > 0.1
+        if valid_mask.sum() < 2:
+            return torch.tensor(0.0, device=slot_embeddings.device)
+
+        embeddings = slot_embeddings[valid_mask]  # [N, D]
+        labels = target_tfs[valid_mask]  # [N]
+
+        if len(labels.unique()) < 2:
+            return torch.tensor(0.0, device=slot_embeddings.device)
+
+        # Normalize embeddings
+        normed = F.normalize(embeddings, dim=-1)
+
+        # Similarity matrix
+        similarity = torch.mm(normed, normed.t()) / self.temperature  # [N, N]
+
+        # Labels match matrix
+        label_match = labels.unsqueeze(0) == labels.unsqueeze(1)  # [N, N]
+
+        # Exclude self-similarity
+        mask_self = ~torch.eye(len(labels), dtype=torch.bool, device=similarity.device)
+        label_match = label_match & mask_self
+
+        # InfoNCE loss
+        exp_sim = torch.exp(similarity) * mask_self.float()
+        pos_sum = (exp_sim * label_match.float()).sum(dim=1)
+        all_sum = exp_sim.sum(dim=1)
+
+        # Only compute for samples that have at least one positive pair
+        has_pos = label_match.sum(dim=1) > 0
+        if has_pos.sum() == 0:
+            return torch.tensor(0.0, device=slot_embeddings.device)
+
+        loss = -torch.log(pos_sum[has_pos] / (all_sum[has_pos] + 1e-8)).mean()
+        return loss
+
+
+class SequenceTFPresenceLoss(nn.Module):
+    """
+    Multi-label auxiliary loss: predict which TFs are present in each sequence.
+
+    Provides a global signal about TF composition before per-slot assignment.
+    """
+
+    def __init__(self, n_tfs: int = 7):
+        super().__init__()
+        self.n_tfs = n_tfs
+
+    def forward(
+        self,
+        slot_embeddings: torch.Tensor,
+        pred_occupancy: torch.Tensor,
+        target_sites: torch.Tensor,
+        tf_presence_head: nn.Module,
+    ) -> torch.Tensor:
+        """
+        Args:
+            slot_embeddings: [B, K, D]
+            pred_occupancy: [B, K, 1]
+            target_sites: [B, K, 3]
+            tf_presence_head: nn.Linear(D, n_tfs)
+        Returns:
+            Binary cross-entropy loss
+        """
+        # Pool slot embeddings weighted by occupancy
+        occ_weights = pred_occupancy.squeeze(-1).softmax(dim=-1)  # [B, K]
+        pooled = torch.einsum('bk,bkd->bd', occ_weights, slot_embeddings)  # [B, D]
+
+        # Predict TF presence
+        logits = tf_presence_head(pooled)  # [B, n_tfs]
+
+        # Build multi-label target
+        target_occ = target_sites[..., 2]  # [B, K]
+        target_tfs = target_sites[..., 1].long()  # [B, K]
+
+        batch_size = target_sites.shape[0]
+        target_labels = torch.zeros(batch_size, self.n_tfs, device=logits.device)
+        for b in range(batch_size):
+            valid = target_occ[b] > 0.1
+            if valid.sum() > 0:
+                present_tfs = target_tfs[b][valid].unique()
+                target_labels[b, present_tfs] = 1.0
+
+        return F.binary_cross_entropy_with_logits(logits, target_labels)
+
+
+class AnchorLoss(nn.Module):
+    """
+    Pulls known-TF motif embeddings toward their designated anchor points.
+
+    Ensures the n_known_tfs TFs remain well-separated and identifiable in
+    the motif embedding space.  Uses cosine distance so the loss operates
+    on direction, not magnitude.
+    """
+
+    def __init__(self, margin: float = 0.3):
+        super().__init__()
+        self.margin = margin
+
+    def forward(
+        self,
+        motif_embeddings: torch.Tensor,
+        anchors: torch.Tensor,
+        target_tfs: torch.Tensor,
+        occupancy: torch.Tensor,
+        target_sites: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Args:
+            motif_embeddings: [B, K, D_m] slot motif embeddings
+            anchors:          [T, D_m]     known TF anchor points (from head)
+            target_tfs:       [B, K]       target TF indices per slot
+            occupancy:        [B, K, 1]    predicted occupancy
+            target_sites:     [B, K, 3]    (position, tf_id, occupancy)
+
+        Returns:
+            Scalar anchor loss
+        """
+        target_occ = target_sites[..., 2]  # [B, K]
+        valid = target_occ > 0.1
+
+        if valid.sum() == 0:
+            return torch.tensor(0.0, device=motif_embeddings.device)
+
+        # Gather valid embeddings and their target anchor index
+        emb = F.normalize(motif_embeddings[valid], dim=-1)  # [N, D_m]
+        tgt = target_tfs[valid].long()  # [N]
+
+        # Clamp to valid anchor range
+        n_anchors = anchors.shape[0]
+        tgt = tgt.clamp(0, n_anchors - 1)
+
+        anchor_norm = F.normalize(anchors, dim=-1)  # [T, D_m]
+        target_anchor = anchor_norm[tgt]  # [N, D_m]
+
+        # Cosine distance to target anchor (pull)
+        cos_sim = (emb * target_anchor).sum(dim=-1)  # [N]
+        pull_loss = (1.0 - cos_sim).mean()
+
+        # Push: distance to non-target anchors should exceed margin
+        all_sim = torch.matmul(emb, anchor_norm.t())  # [N, T]
+        # Mask out target anchor
+        mask = torch.ones_like(all_sim, dtype=torch.bool)
+        mask.scatter_(1, tgt.unsqueeze(1), False)
+        neg_sim = all_sim[mask].view(emb.shape[0], n_anchors - 1)
+        push_loss = F.relu(neg_sim - (1.0 - self.margin)).mean()
+
+        return pull_loss + push_loss
+
+
+class ImportanceSupervisionLoss(nn.Module):
+    """
+    Supervises the per-base attribution head with gradient-derived importance.
+
+    During training, ground-truth importance is obtained by backpropagating
+    the profile reconstruction loss to the input and computing
+    ``|grad * input|``.  The attribution head should approximate this signal.
+
+    Uses Pearson-correlation-based loss so the head learns the *shape* of
+    importance rather than its absolute scale.
+    """
+
+    def forward(
+        self,
+        pred_importance: torch.Tensor,
+        target_importance: torch.Tensor,
+        occupancy: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            pred_importance:   [B, K, L] predicted per-slot importance
+            target_importance: [B, L]    gradient-derived total importance
+            occupancy:         [B, K, 1] optional, weight by occupancy
+
+        Returns:
+            Scalar loss (lower = better correlation)
+        """
+        # Aggregate predicted importance across slots (occupancy-weighted)
+        if occupancy is not None:
+            occ_w = occupancy.squeeze(-1)  # [B, K]
+            pred_total = (pred_importance * occ_w.unsqueeze(-1)).sum(dim=1)  # [B, L]
+        else:
+            pred_total = pred_importance.sum(dim=1)  # [B, L]
+
+        # Negative Pearson correlation loss
+        pred_c = pred_total - pred_total.mean(dim=-1, keepdim=True)
+        tgt_c = target_importance - target_importance.mean(dim=-1, keepdim=True)
+
+        num = (pred_c * tgt_c).sum(dim=-1)
+        den = torch.sqrt(
+            (pred_c ** 2).sum(dim=-1) * (tgt_c ** 2).sum(dim=-1) + 1e-8
+        )
+        pearson = num / den  # [B]
+
+        # Loss = 1 - mean_correlation  (0 when perfectly correlated)
+        return (1.0 - pearson).mean()
+
+
+class PrototypeDiversityLoss(nn.Module):
+    """
+    Encourages codebook prototypes to spread uniformly through the motif
+    embedding space, preventing dead prototypes and ensuring coverage for
+    novel motif discovery.
+
+    Combines two terms:
+    1. Anti-collapse: penalises high pairwise similarity between prototypes.
+    2. Usage balance: penalises when assignments concentrate on few prototypes.
+    """
+
+    def forward(
+        self,
+        prototypes: torch.Tensor,
+        prototype_assignments: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            prototypes:            [P, D_m] learnable prototype embeddings
+            prototype_assignments: [B, K, P] soft assignment weights (optional)
+
+        Returns:
+            Scalar diversity loss
+        """
+        proto_norm = F.normalize(prototypes, dim=-1)  # [P, D_m]
+
+        # Pairwise cosine similarity [P, P]
+        sim = torch.matmul(proto_norm, proto_norm.t())
+
+        # Mask diagonal
+        P = sim.shape[0]
+        mask = 1.0 - torch.eye(P, device=sim.device)
+        off_diag = sim * mask
+
+        # Anti-collapse: penalise high off-diagonal similarity
+        collapse_loss = (off_diag ** 2).sum() / (P * (P - 1))
+
+        # Usage balance: penalise concentration when assignments given
+        balance_loss = torch.tensor(0.0, device=prototypes.device)
+        if prototype_assignments is not None:
+            # Average assignment across batch & slots → [P]
+            avg_usage = prototype_assignments.mean(dim=(0, 1))
+            # Negative entropy of usage distribution
+            log_usage = torch.log(avg_usage + 1e-8)
+            neg_entropy = (avg_usage * log_usage).sum()
+            max_entropy = math.log(P)
+            balance_loss = (neg_entropy / max_entropy) + 1.0
+
+        return collapse_loss + 0.5 * balance_loss
+
+
+class ContrastiveTFEmbeddingLoss(nn.Module):
+    """
+    Contrastive loss pulling slot embeddings of the same TF closer
+    in representation space and pushing different-TF embeddings apart.
+
+    Unlike SlotContrastiveLoss which operates on raw slot embeddings,
+    this operates on TF logit space for more direct TF discrimination.
+    """
+
+    def __init__(self, temperature: float = 0.07, margin: float = 0.5):
+        super().__init__()
+        self.temperature = temperature
+        self.margin = margin
+
+    def forward(
+        self,
+        tf_logits: torch.Tensor,
+        target_sites: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Args:
+            tf_logits: [B, K, N_TFs] predicted TF logits
+            target_sites: [B, K, 3] (position, tf_id, occupancy)
+        Returns:
+            Scalar contrastive loss
+        """
+        target_occ = target_sites[..., 2]
+        target_tfs = target_sites[..., 1].long()
+
+        valid_mask = target_occ > 0.1
+        if valid_mask.sum() < 2:
+            return torch.tensor(0.0, device=tf_logits.device)
+
+        # Get hidden representations (pre-softmax logits as embeddings)
+        embeddings = tf_logits[valid_mask]  # [N, N_TFs]
+        labels = target_tfs[valid_mask]  # [N]
+
+        if len(labels.unique()) < 2:
+            return torch.tensor(0.0, device=tf_logits.device)
+
+        normed = F.normalize(embeddings, dim=-1)
+        similarity = torch.mm(normed, normed.t()) / self.temperature
+
+        label_match = labels.unsqueeze(0) == labels.unsqueeze(1)
+        mask_self = ~torch.eye(len(labels), dtype=torch.bool, device=similarity.device)
+
+        # Triplet-style: pull positives, push negatives past margin
+        pos_mask = label_match & mask_self
+        neg_mask = ~label_match & mask_self
+
+        loss = torch.tensor(0.0, device=tf_logits.device)
+        n_valid = 0
+
+        for i in range(len(labels)):
+            pos_indices = pos_mask[i].nonzero(as_tuple=True)[0]
+            neg_indices = neg_mask[i].nonzero(as_tuple=True)[0]
+
+            if len(pos_indices) == 0 or len(neg_indices) == 0:
+                continue
+
+            pos_sim = similarity[i, pos_indices].mean()
+            neg_sim = similarity[i, neg_indices]
+
+            # Hinge loss: push negatives below positive - margin
+            violations = F.relu(neg_sim - pos_sim + self.margin)
+            loss = loss + violations.mean()
+            n_valid += 1
+
+        if n_valid > 0:
+            loss = loss / n_valid
+        return loss
+
+
+class PerTFDifficultyLoss(nn.Module):
+    """
+    Adaptive per-TF difficulty weighting for TF classification.
+
+    Maintains running estimates of per-TF accuracy and upweights
+    losses for harder TFs, similar to focal loss but at TF level.
+    """
+
+    def __init__(self, n_tfs: int = 7, momentum: float = 0.9, gamma: float = 2.0):
+        super().__init__()
+        self.n_tfs = n_tfs
+        self.momentum = momentum
+        self.gamma = gamma
+        self.register_buffer('tf_accuracy', torch.ones(n_tfs) * 0.5)
+        self.register_buffer('tf_counts', torch.zeros(n_tfs))
+
+    def forward(
+        self,
+        tf_logits: torch.Tensor,
+        target_sites: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Args:
+            tf_logits: [B, K, N_TFs]
+            target_sites: [B, K, 3]
+        Returns:
+            Difficulty-weighted TF loss
+        """
+        target_occ = target_sites[..., 2]
+        target_tfs = target_sites[..., 1].long()
+        valid_mask = target_occ > 0.1
+
+        if valid_mask.sum() == 0:
+            return torch.tensor(0.0, device=tf_logits.device)
+
+        logits = tf_logits[valid_mask]  # [N, N_TFs]
+        labels = target_tfs[valid_mask]  # [N]
+
+        # Ensure buffers are on the same device as inputs
+        if self.tf_accuracy.device != logits.device:
+            self.tf_accuracy = self.tf_accuracy.to(logits.device)
+            self.tf_counts = self.tf_counts.to(logits.device)
+
+        # Per-sample cross entropy
+        ce = F.cross_entropy(logits, labels, reduction='none')
+
+        # Compute difficulty weights from running accuracy
+        with torch.no_grad():
+            preds = logits.argmax(dim=-1)
+            correct = (preds == labels).float()
+
+            for tf_id in range(self.n_tfs):
+                tf_mask = labels == tf_id
+                if tf_mask.sum() > 0:
+                    tf_acc = correct[tf_mask].mean()
+                    self.tf_accuracy[tf_id] = (
+                        self.momentum * self.tf_accuracy[tf_id]
+                        + (1 - self.momentum) * tf_acc
+                    )
+                    self.tf_counts[tf_id] += tf_mask.sum().item()
+
+        # Focal-style weighting: harder TFs get higher weight
+        difficulty = (1 - self.tf_accuracy[labels]) ** self.gamma
+        weighted_ce = ce * difficulty
+
+        return weighted_ce.mean()
+
+
+class MultiScaleImportanceLoss(nn.Module):
+    """
+    Multi-scale importance supervision for the attribution head.
+
+    Computes Pearson correlation at multiple resolutions (1bp, 10bp, 50bp, 100bp)
+    to help the attribution head learn both fine-grained and broad importance patterns.
+    """
+
+    def __init__(self, scales: Optional[list] = None):
+        super().__init__()
+        self.scales = scales or [1, 10, 50, 100]
+
+    def forward(
+        self,
+        pred_importance: torch.Tensor,
+        target_importance: torch.Tensor,
+        occupancy: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            pred_importance: [B, K, L] per-slot importance
+            target_importance: [B, L] gradient importance
+            occupancy: [B, K, 1] optional occupancy weights
+        Returns:
+            Scalar loss (average correlation loss across scales)
+        """
+        if occupancy is not None:
+            occ_w = occupancy.squeeze(-1)
+            pred_total = (pred_importance * occ_w.unsqueeze(-1)).sum(dim=1)
+        else:
+            pred_total = pred_importance.sum(dim=1)
+
+        total_loss = torch.tensor(0.0, device=pred_importance.device)
+        n_scales = 0
+
+        for scale in self.scales:
+            if scale == 1:
+                pred_s = pred_total
+                tgt_s = target_importance
+            else:
+                L = pred_total.shape[-1]
+                new_L = L // scale
+                if new_L < 4:
+                    continue
+                pred_s = pred_total[:, :new_L * scale].reshape(-1, new_L, scale).mean(dim=-1)
+                tgt_s = target_importance[:, :new_L * scale].reshape(-1, new_L, scale).mean(dim=-1)
+
+            # Pearson correlation loss
+            pred_c = pred_s - pred_s.mean(dim=-1, keepdim=True)
+            tgt_c = tgt_s - tgt_s.mean(dim=-1, keepdim=True)
+            num = (pred_c * tgt_c).sum(dim=-1)
+            den = torch.sqrt(
+                (pred_c ** 2).sum(dim=-1) * (tgt_c ** 2).sum(dim=-1) + 1e-8
+            )
+            pearson = num / den
+            total_loss = total_loss + (1.0 - pearson).mean()
+            n_scales += 1
+
+        if n_scales > 0:
+            total_loss = total_loss / n_scales
+        return total_loss
+
+
 class BEACONLoss(nn.Module):
     """
     Combined loss function for BEACON training.
@@ -668,6 +1151,16 @@ class BEACONLoss(nn.Module):
         use_hungarian: bool = False,
         slot_count_weight: float = 0.0,
         load_balancing_weight: float = 0.0,
+        contrastive_weight: float = 0.0,
+        tf_presence_weight: float = 0.0,
+        # Phase 1 losses
+        anchor_weight: float = 0.0,
+        importance_weight: float = 0.0,
+        prototype_diversity_weight: float = 0.0,
+        # Phase B additions
+        tf_contrastive_weight: float = 0.0,
+        tf_difficulty_weight: float = 0.0,
+        multiscale_importance_weight: float = 0.0,
         # Sub-loss parameters
         label_smoothing: float = 0.1,
         sparsity_weight: float = 0.1,
@@ -684,6 +1177,14 @@ class BEACONLoss(nn.Module):
         self.use_hungarian = use_hungarian
         self.slot_count_weight = slot_count_weight
         self.load_balancing_weight = load_balancing_weight
+        self.contrastive_weight = contrastive_weight
+        self.tf_presence_weight = tf_presence_weight
+        self.anchor_weight = anchor_weight
+        self.importance_weight = importance_weight
+        self.prototype_diversity_weight = prototype_diversity_weight
+        self.tf_contrastive_weight = tf_contrastive_weight
+        self.tf_difficulty_weight = tf_difficulty_weight
+        self.multiscale_importance_weight = multiscale_importance_weight
 
         # Individual loss components
         self.profile_loss = ProfileReconstructionLoss()
@@ -700,6 +1201,22 @@ class BEACONLoss(nn.Module):
             self.slot_count_loss = SlotCountLoss()
         if load_balancing_weight > 0:
             self.load_balancing_loss = AttentionLoadBalancingLoss()
+        if contrastive_weight > 0:
+            self.contrastive_loss = SlotContrastiveLoss()
+        if tf_presence_weight > 0:
+            self.tf_presence_loss = SequenceTFPresenceLoss(n_tfs=n_tfs)
+        if anchor_weight > 0:
+            self.anchor_loss = AnchorLoss()
+        if importance_weight > 0:
+            self.importance_loss = ImportanceSupervisionLoss()
+        if prototype_diversity_weight > 0:
+            self.prototype_loss = PrototypeDiversityLoss()
+        if tf_contrastive_weight > 0:
+            self.tf_contrastive_loss = ContrastiveTFEmbeddingLoss()
+        if tf_difficulty_weight > 0:
+            self.tf_difficulty_loss = PerTFDifficultyLoss(n_tfs=n_tfs)
+        if multiscale_importance_weight > 0:
+            self.multiscale_importance_loss = MultiScaleImportanceLoss()
 
     def forward(
         self,
@@ -829,6 +1346,98 @@ class BEACONLoss(nn.Module):
         else:
             losses["load_balancing"] = torch.tensor(0.0, device=outputs["profile"].device)
 
+        # Contrastive slot loss
+        if self.contrastive_weight > 0 and "slot_embeddings" in outputs and "binding_sites" in targets:
+            losses["contrastive"] = self.contrastive_loss(
+                outputs["slot_embeddings"], outputs["occupancy"], targets["binding_sites"]
+            )
+        else:
+            losses["contrastive"] = torch.tensor(0.0, device=outputs["profile"].device)
+
+        # Sequence-level TF presence loss
+        if self.tf_presence_weight > 0 and "slot_embeddings" in outputs and "binding_sites" in targets:
+            tf_head = outputs.get("tf_presence_head", targets.get("tf_presence_head", None))
+            losses["tf_presence"] = self.tf_presence_loss(
+                outputs["slot_embeddings"], outputs["occupancy"],
+                targets["binding_sites"], tf_head
+            )
+        else:
+            losses["tf_presence"] = torch.tensor(0.0, device=outputs["profile"].device)
+
+        # Phase 1: Anchor loss (motif embedding → known TF anchors)
+        if (
+            self.anchor_weight > 0
+            and "motif_embeddings" in outputs
+            and "motif_anchors" in outputs
+            and "binding_sites" in targets
+        ):
+            target_tfs = targets["binding_sites"][..., 1].long()
+            losses["anchor"] = self.anchor_loss(
+                outputs["motif_embeddings"],
+                outputs["motif_anchors"],
+                target_tfs,
+                outputs["occupancy"],
+                targets["binding_sites"],
+            )
+        else:
+            losses["anchor"] = torch.tensor(0.0, device=outputs["profile"].device)
+
+        # Phase 1: Importance supervision (attribution head)
+        if (
+            self.importance_weight > 0
+            and "attribution" in outputs
+            and "importance_target" in targets
+        ):
+            losses["importance"] = self.importance_loss(
+                outputs["attribution"],
+                targets["importance_target"],
+                outputs.get("occupancy", None),
+            )
+        else:
+            losses["importance"] = torch.tensor(0.0, device=outputs["profile"].device)
+
+        # Phase 1: Prototype diversity
+        if (
+            self.prototype_diversity_weight > 0
+            and "motif_prototypes" in outputs
+        ):
+            losses["prototype_diversity"] = self.prototype_loss(
+                outputs["motif_prototypes"],
+                outputs.get("prototype_assignments", None),
+            )
+        else:
+            losses["prototype_diversity"] = torch.tensor(0.0, device=outputs["profile"].device)
+
+        # Phase B: Contrastive TF embedding loss
+        if self.tf_contrastive_weight > 0 and "tf_logits" in outputs and "binding_sites" in targets:
+            losses["tf_contrastive"] = self.tf_contrastive_loss(
+                outputs["tf_logits"], targets["binding_sites"]
+            )
+        else:
+            losses["tf_contrastive"] = torch.tensor(0.0, device=outputs["profile"].device)
+
+        # Phase B: Per-TF difficulty-weighted loss
+        if self.tf_difficulty_weight > 0 and "tf_logits" in outputs and "binding_sites" in targets:
+            losses["tf_difficulty"] = self.tf_difficulty_loss(
+                outputs["tf_logits"], targets["binding_sites"]
+            )
+        else:
+            losses["tf_difficulty"] = torch.tensor(0.0, device=outputs["profile"].device)
+
+        # Phase B: Multi-scale importance loss
+        if (
+            self.multiscale_importance_weight > 0
+            and "attribution" in outputs
+            and "importance_target" in targets
+        ):
+            losses["multiscale_importance"] = self.multiscale_importance_loss(
+                outputs["attribution"],
+                targets["importance_target"],
+                outputs.get("occupancy", None),
+            )
+        else:
+            losses["multiscale_importance"] = torch.tensor(0.0, device=outputs["profile"].device)
+
         # Total weighted loss
         total = (
             self.profile_weight * losses["profile"] +
@@ -839,7 +1448,15 @@ class BEACONLoss(nn.Module):
             self.orthogonality_weight * losses["orthogonality"] +
             self.site_supervision_weight * losses["site_supervision"] +
             self.slot_count_weight * losses["slot_count"] +
-            self.load_balancing_weight * losses["load_balancing"]
+            self.load_balancing_weight * losses["load_balancing"] +
+            self.contrastive_weight * losses["contrastive"] +
+            self.tf_presence_weight * losses["tf_presence"] +
+            self.anchor_weight * losses["anchor"] +
+            self.importance_weight * losses["importance"] +
+            self.prototype_diversity_weight * losses["prototype_diversity"] +
+            self.tf_contrastive_weight * losses["tf_contrastive"] +
+            self.tf_difficulty_weight * losses["tf_difficulty"] +
+            self.multiscale_importance_weight * losses["multiscale_importance"]
         )
 
         losses["total"] = total

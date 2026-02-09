@@ -17,7 +17,10 @@ import math
 from .backbone import ConvBackbone, DilatedConvBackbone
 from .positional import HelicalPositionalEncoding
 from .slot_attention import SlotAttention, PWMGroundedSlotAttention, PositionAwareSlotAttention
-from .heads import PositionHead, TFIdentityHead, OccupancyHead, ProfileHead
+from .heads import (
+    PositionHead, TFIdentityHead, OccupancyHead, ProfileHead,
+    AttributionHead, MotifEmbeddingHead,
+)
 
 
 class BEACON(nn.Module):
@@ -56,6 +59,11 @@ class BEACON(nn.Module):
         position_mode: str = "gaussian",
         # PWM initialization (optional)
         pwm_embeddings: Optional[torch.Tensor] = None,
+        # Phase 1 heads (optional)
+        use_attribution_head: bool = False,
+        use_motif_embedding_head: bool = False,
+        motif_dim: int = 64,
+        n_prototypes: int = 64,
         # Regularization
         dropout: float = 0.1,
     ):
@@ -124,6 +132,26 @@ class BEACON(nn.Module):
             seq_len=seq_len,
         )
 
+        # Phase 1: Optional attribution head (replaces DeepSHAP)
+        self.attribution_head = None
+        if use_attribution_head:
+            self.attribution_head = AttributionHead(
+                slot_dim=slot_dim,
+                feature_dim=slot_dim,
+                n_heads=max(1, slot_dim // 64),
+                hidden_dim=slot_dim,
+            )
+
+        # Phase 1: Optional motif embedding head (replaces fixed TF classifier)
+        self.motif_embedding_head = None
+        if use_motif_embedding_head:
+            self.motif_embedding_head = MotifEmbeddingHead(
+                slot_dim=slot_dim,
+                motif_dim=motif_dim,
+                n_prototypes=n_prototypes,
+                n_known_tfs=n_tfs,
+            )
+
         # Store config
         self.config = {
             "seq_len": seq_len,
@@ -132,6 +160,10 @@ class BEACON(nn.Module):
             "n_tfs": n_tfs,
             "backbone_type": backbone_type,
             "slot_type": slot_type,
+            "use_attribution_head": use_attribution_head,
+            "use_motif_embedding_head": use_motif_embedding_head,
+            "motif_dim": motif_dim,
+            "n_prototypes": n_prototypes,
         }
 
     def _build_backbone(
@@ -268,6 +300,21 @@ class BEACON(nn.Module):
 
         # Always include slot embeddings for orthogonality loss during training
         outputs["slot_embeddings"] = slots
+
+        # Phase 1: Attribution head (per-base importance per slot)
+        if self.attribution_head is not None:
+            outputs["attribution"] = self.attribution_head(slots, features)
+
+        # Phase 1: Motif embedding head (open-vocabulary motifs)
+        if self.motif_embedding_head is not None:
+            motif_out = self.motif_embedding_head(slots)
+            outputs["motif_embeddings"] = motif_out["motif_embeddings"]
+            outputs["prototype_assignments"] = motif_out["prototype_assignments"]
+            outputs["anchor_distances"] = motif_out["anchor_distances"]
+            outputs["motif_tf_logits"] = motif_out["tf_logits"]
+            # Expose anchors and prototypes for loss computation
+            outputs["motif_anchors"] = self.motif_embedding_head.anchors
+            outputs["motif_prototypes"] = self.motif_embedding_head.prototypes
 
         return outputs
 

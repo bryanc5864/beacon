@@ -6,13 +6,16 @@ Each slot produces three outputs:
 2. TF Identity: What TF is binding? [B, K, P]
 3. Occupancy: How strong is the binding? [B, K, 1]
 
-Additionally, a Profile Head reconstructs binding profiles for BPNet compatibility.
+Additionally:
+- Profile Head reconstructs binding profiles for BPNet compatibility.
+- AttributionHead provides per-base importance per slot (replaces DeepSHAP).
+- MotifEmbeddingHead projects slots to an open-vocabulary motif space.
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 import math
 
 
@@ -209,6 +212,86 @@ class TFIdentityHead(nn.Module):
         probs = F.softmax(logits, dim=-1)
         confidences, tf_ids = probs.max(dim=-1)
         return tf_ids, confidences
+
+
+class DeepTFIdentityHead(nn.Module):
+    """
+    Deeper TF classifier with dedicated capacity for multi-TF discrimination.
+
+    Phase 9.1: Expands from 2-layer MLP to 4-layer with dropout,
+    giving the TF classifier more representational power.
+    """
+
+    def __init__(
+        self,
+        slot_dim: int = 128,
+        hidden_dim: int = 256,
+        n_tfs: int = 7,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+        self.n_tfs = n_tfs
+
+        self.mlp = nn.Sequential(
+            nn.Linear(slot_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.GELU(),
+            nn.Linear(hidden_dim // 2, n_tfs),
+        )
+
+    def forward(self, slots: torch.Tensor) -> torch.Tensor:
+        return self.mlp(slots)
+
+    def predict_tf(self, slots: torch.Tensor):
+        logits = self.forward(slots)
+        probs = F.softmax(logits, dim=-1)
+        confidences, tf_ids = probs.max(dim=-1)
+        return tf_ids, confidences
+
+
+class SlotDropout(nn.Module):
+    """
+    Phase 8.1: During training, randomly zero out the highest-occupancy slot,
+    forcing the model to distribute information across multiple slots.
+    """
+
+    def __init__(self, drop_prob: float = 0.3):
+        super().__init__()
+        self.drop_prob = drop_prob
+
+    def forward(
+        self,
+        slot_embeddings: torch.Tensor,
+        occupancy: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            slot_embeddings: [B, K, D]
+            occupancy: [B, K, 1]
+        Returns:
+            Masked slot_embeddings, masked occupancy
+        """
+        if not self.training:
+            return slot_embeddings, occupancy
+
+        batch_size = slot_embeddings.shape[0]
+        occ_flat = occupancy.squeeze(-1)  # [B, K]
+
+        # For each sample, find the highest-occupancy slot and drop it with probability
+        mask = torch.ones_like(occ_flat)
+        top_slots = occ_flat.argmax(dim=-1)  # [B]
+
+        for b in range(batch_size):
+            if torch.rand(1).item() < self.drop_prob:
+                mask[b, top_slots[b]] = 0.0
+
+        mask = mask.unsqueeze(-1)  # [B, K, 1]
+        return slot_embeddings * mask, occupancy * mask
 
 
 class OccupancyHead(nn.Module):
@@ -441,3 +524,215 @@ class DecoderHead(nn.Module):
             "occupancy": self.occupancy_head(slots),
             "profile": self.profile_head(slots),
         }
+
+
+class AttributionHead(nn.Module):
+    """
+    Per-Base Attribution Head (replaces DeepSHAP).
+
+    Learns to predict which bases contribute to each slot's binding event
+    via cross-attention from slots to sequence features, supervised during
+    training by gradient-derived importance from profile reconstruction loss.
+
+    At inference a single forward pass produces per-base attribution for each
+    slot -- no reference sequences required.
+
+    Output: [B, K, L] per-slot per-position importance scores.
+    """
+
+    def __init__(
+        self,
+        slot_dim: int = 256,
+        feature_dim: int = 256,
+        n_heads: int = 4,
+        hidden_dim: int = 256,
+    ):
+        super().__init__()
+        self.slot_dim = slot_dim
+        self.n_heads = n_heads
+        self.head_dim = slot_dim // n_heads
+
+        # Cross-attention: slots (queries) attend to sequence features (keys/values)
+        self.q_proj = nn.Linear(slot_dim, slot_dim, bias=False)
+        self.k_proj = nn.Linear(feature_dim, slot_dim, bias=False)
+        # NOTE: v_proj and out_proj are defined for checkpoint compatibility but
+        # not used in forward(). Only attention weights (from Q/K) are used, not V.
+        self.v_proj = nn.Linear(feature_dim, slot_dim)
+        self.out_proj = nn.Linear(slot_dim, slot_dim)
+
+        # Per-position importance MLP (applied to sequence features)
+        self.importance_head = nn.Sequential(
+            nn.Linear(feature_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, 1),
+        )
+
+        self.layer_norm_slots = nn.LayerNorm(slot_dim)
+        self.layer_norm_features = nn.LayerNorm(feature_dim)
+
+    def forward(
+        self,
+        slots: torch.Tensor,
+        features: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Args:
+            slots: Slot embeddings [B, K, D]
+            features: Backbone sequence features [B, L, D_feat]
+
+        Returns:
+            importance: Per-slot per-position importance [B, K, L]
+        """
+        B, K, D = slots.shape
+        L = features.shape[1]
+
+        slots_norm = self.layer_norm_slots(slots)
+        features_norm = self.layer_norm_features(features)
+
+        # Multi-head cross-attention
+        Q = (
+            self.q_proj(slots_norm)
+            .view(B, K, self.n_heads, self.head_dim)
+            .transpose(1, 2)
+        )  # [B, H, K, D/H]
+        Kp = (
+            self.k_proj(features_norm)
+            .view(B, L, self.n_heads, self.head_dim)
+            .transpose(1, 2)
+        )  # [B, H, L, D/H]
+
+        # Attention weights: [B, H, K, L]
+        attn = torch.matmul(Q, Kp.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        attn_weights = F.softmax(attn, dim=-1)
+
+        # Average over heads → [B, K, L]
+        slot_position_attn = attn_weights.mean(dim=1)
+
+        # Per-position importance from features → [B, L]
+        pos_importance = torch.sigmoid(
+            self.importance_head(features_norm).squeeze(-1)
+        )
+
+        # Final importance: slot-position attention * position importance
+        importance = slot_position_attn * pos_importance.unsqueeze(1)  # [B, K, L]
+        return importance
+
+
+class MotifEmbeddingHead(nn.Module):
+    """
+    Open-Vocabulary Motif Discovery Head (replaces fixed TF classifier).
+
+    Projects slot embeddings into a continuous motif embedding space anchored by
+    known TFs but open to novel motif patterns.  A codebook of learnable
+    prototypes covers the embedding volume; known TF anchors provide grounding.
+
+    Outputs both prototype soft-assignments (for novel motif discovery) and
+    standard TF classification logits (for backward compatibility with existing
+    training / evaluation code).
+    """
+
+    def __init__(
+        self,
+        slot_dim: int = 256,
+        motif_dim: int = 64,
+        n_prototypes: int = 64,
+        n_known_tfs: int = 7,
+        temperature: float = 0.1,
+    ):
+        super().__init__()
+        self.motif_dim = motif_dim
+        self.n_prototypes = n_prototypes
+        self.n_known_tfs = n_known_tfs
+
+        # Learnable temperature for distance scaling
+        self.log_temperature = nn.Parameter(
+            torch.tensor(math.log(temperature))
+        )
+
+        # Project slot → motif embedding space
+        self.slot_to_motif = nn.Sequential(
+            nn.Linear(slot_dim, slot_dim),
+            nn.GELU(),
+            nn.Linear(slot_dim, motif_dim),
+        )
+
+        # Learnable prototype codebook (initialized uniformly in unit sphere)
+        self.prototypes = nn.Parameter(
+            F.normalize(torch.randn(n_prototypes, motif_dim), dim=-1) * 0.5
+        )
+
+        # Known TF anchor points (initialized with slight separation)
+        self.anchors = nn.Parameter(
+            F.normalize(torch.randn(n_known_tfs, motif_dim), dim=-1) * 0.5
+        )
+
+        # Linear head for backward-compatible TF logits
+        self.known_tf_classifier = nn.Linear(motif_dim, n_known_tfs)
+
+    @property
+    def temperature(self) -> torch.Tensor:
+        return self.log_temperature.exp()
+
+    def forward(self, slots: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        Args:
+            slots: Slot embeddings [B, K, D]
+
+        Returns:
+            Dictionary with:
+            - motif_embeddings:       [B, K, motif_dim]
+            - prototype_assignments:  [B, K, n_prototypes]  (soft)
+            - anchor_distances:       [B, K, n_known_tfs]
+            - tf_logits:              [B, K, n_known_tfs]  (backward compat)
+        """
+        motif_emb = self.slot_to_motif(slots)  # [B, K, motif_dim]
+        motif_emb_norm = F.normalize(motif_emb, dim=-1)
+
+        # Soft prototype assignments via cosine similarity
+        proto_norm = F.normalize(self.prototypes, dim=-1)  # [P, D_m]
+        proto_sim = torch.matmul(motif_emb_norm, proto_norm.t())  # [B, K, P]
+        proto_assignments = F.softmax(proto_sim / self.temperature, dim=-1)
+
+        # L2 distance to known TF anchors
+        anchor_norm = F.normalize(self.anchors, dim=-1)  # [T, D_m]
+        # [B, K, D_m] vs [T, D_m] → [B, K, T]
+        anchor_distances = torch.cdist(motif_emb_norm, anchor_norm.unsqueeze(0).expand(slots.shape[0], -1, -1))
+
+        # Standard TF logits for backward compatibility
+        tf_logits = self.known_tf_classifier(motif_emb)
+
+        return {
+            "motif_embeddings": motif_emb,
+            "prototype_assignments": proto_assignments,
+            "anchor_distances": anchor_distances,
+            "tf_logits": tf_logits,
+        }
+
+    def get_novel_motifs(
+        self,
+        motif_embeddings: torch.Tensor,
+        distance_threshold: float = 0.5,
+    ) -> torch.Tensor:
+        """
+        Identify embeddings far from all known TF anchors (potentially novel).
+
+        Args:
+            motif_embeddings: [B, K, motif_dim] or [N, motif_dim]
+            distance_threshold: Minimum distance to all anchors for novelty
+
+        Returns:
+            Boolean mask of the same leading shape (True = novel)
+        """
+        anchor_norm = F.normalize(self.anchors, dim=-1)
+        emb_norm = F.normalize(motif_embeddings, dim=-1)
+
+        if emb_norm.dim() == 3:
+            B, K, D = emb_norm.shape
+            flat = emb_norm.reshape(B * K, D)
+            dists = torch.cdist(flat.unsqueeze(0), anchor_norm.unsqueeze(0)).squeeze(0)  # [B*K, T]
+            min_dist = dists.min(dim=-1).values.view(B, K)
+        else:
+            dists = torch.cdist(emb_norm.unsqueeze(0), anchor_norm.unsqueeze(0)).squeeze(0)
+            min_dist = dists.min(dim=-1).values
+
+        return min_dist > distance_threshold
