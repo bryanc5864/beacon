@@ -817,10 +817,13 @@ def main():
     print()
 
     # ---- Load HepG2 config and build TF mapping ----
+    # Try config.json first, fall back to summary.json
     hepg2_config_path = hepg2_data / "config.json"
+    if not hepg2_config_path.exists():
+        hepg2_config_path = hepg2_data / "summary.json"
     with open(hepg2_config_path) as f:
         hepg2_config = json.load(f)
-    hepg2_tf_names = hepg2_config["tf_names"]
+    hepg2_tf_names = hepg2_config.get("tf_names", hepg2_config.get("tfs"))
 
     tf_mapping, shared_tf_names = build_tf_mapping(hepg2_tf_names)
 

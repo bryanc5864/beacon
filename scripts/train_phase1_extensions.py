@@ -8,7 +8,7 @@ two stages on top of the Phase 10 checkpoint.
 Stage 2: Attribution Head (~20 epochs)
   - Load Phase 10 checkpoint, add AttributionHead
   - Freeze backbone + slot_attention for first 10 epochs
-  - Custom training loop with BEACONLoss + AttributionSupervisionLoss
+  - Custom training loop with BEACONLoss + ImportanceSupervisionLoss
   - LR: 3e-5, unfreeze backbone at epoch 10 with 0.1x LR multiplier
 
 Stage 3: Motif Embedding Head (~20 epochs)
@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from beacon.models import BEACON
 from beacon.models.losses import (
     BEACONLoss,
-    AttributionSupervisionLoss,
+    ImportanceSupervisionLoss,
     AnchorLoss,
     PrototypeDiversityLoss,
 )
@@ -94,8 +94,10 @@ class GradientImportanceDataset(Dataset):
             if hasattr(self.base, "augment") and self.base.augment
             else idx
         )
+        imp = self.importance[real_idx].astype(np.float32)  # [L, 4]
+        # Collapse 4 channels to scalar per position
         item["gradient_importance"] = torch.from_numpy(
-            self.importance[real_idx].astype(np.float32)
+            np.abs(imp).sum(axis=-1)  # [L]
         )
         return item
 
@@ -335,7 +337,7 @@ def train_stage2(args):
         dropout=0.1,
         attention_mode="independent",
         use_attribution_head=True,
-        use_motif_embedding=False,
+        use_motif_embedding_head=False,
     )
 
     # Load Phase 10 checkpoint (missing attribution head params is OK)
@@ -421,7 +423,7 @@ def train_stage2(args):
         slot_count_weight=0.5,
         load_balancing_weight=0.3,
     )
-    attribution_loss_fn = AttributionSupervisionLoss()
+    attribution_loss_fn = ImportanceSupervisionLoss()
     attribution_weight = 0.5
 
     # ---- Optimizer with parameter groups ----
@@ -439,7 +441,7 @@ def train_stage2(args):
 
     # Mixed precision
     use_amp = device != "cpu" and torch.cuda.is_available()
-    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
 
     # ---- Training loop ----
     best_val_loss = float("inf")
@@ -499,7 +501,7 @@ def train_stage2(args):
             optimizer.zero_grad()
 
             if use_amp:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     outputs = model(batch["sequence"])
                     targets = build_targets(batch)
                     base_losses = beacon_loss_fn(outputs, targets)
@@ -562,7 +564,7 @@ def train_stage2(args):
                 batch = to_device(batch, device)
 
                 if use_amp:
-                    with torch.cuda.amp.autocast():
+                    with torch.amp.autocast('cuda'):
                         outputs = model(batch["sequence"])
                         targets = build_targets(batch)
                         base_losses = beacon_loss_fn(outputs, targets)
@@ -632,7 +634,7 @@ def train_stage2(args):
                     "config": {
                         "stage": 2,
                         "use_attribution_head": True,
-                        "use_motif_embedding": False,
+                        "use_motif_embedding_head": False,
                     },
                 },
                 best_model_path,
@@ -730,7 +732,7 @@ def train_stage3(args, stage2_checkpoint=None):
         dropout=0.1,
         attention_mode="independent",
         use_attribution_head=True,
-        use_motif_embedding=True,
+        use_motif_embedding_head=True,
         motif_embed_dim=motif_embed_dim,
     )
 
@@ -841,7 +843,7 @@ def train_stage3(args, stage2_checkpoint=None):
 
     # Mixed precision
     use_amp = device != "cpu" and torch.cuda.is_available()
-    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
 
     # ---- Training loop ----
     best_val_loss = float("inf")
@@ -873,7 +875,7 @@ def train_stage3(args, stage2_checkpoint=None):
             optimizer.zero_grad()
 
             if use_amp:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     outputs = model(batch["sequence"])
                     targets = build_targets(batch)
                     base_losses = beacon_loss_fn(outputs, targets)
@@ -974,7 +976,7 @@ def train_stage3(args, stage2_checkpoint=None):
                 batch = to_device(batch, device)
 
                 if use_amp:
-                    with torch.cuda.amp.autocast():
+                    with torch.amp.autocast('cuda'):
                         outputs = model(batch["sequence"])
                         targets = build_targets(batch)
                         base_losses = beacon_loss_fn(outputs, targets)
@@ -1086,7 +1088,7 @@ def train_stage3(args, stage2_checkpoint=None):
                     "config": {
                         "stage": 3,
                         "use_attribution_head": True,
-                        "use_motif_embedding": True,
+                        "use_motif_embedding_head": True,
                         "motif_embed_dim": motif_embed_dim,
                     },
                 },

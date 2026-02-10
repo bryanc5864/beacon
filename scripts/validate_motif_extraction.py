@@ -413,6 +413,7 @@ def main():
             sequences_array,
             slot_id=slot_id,
             tf_name=tf_name,
+            per_sample_importance=importance_maps,
         )
 
         # Compare to JASPAR

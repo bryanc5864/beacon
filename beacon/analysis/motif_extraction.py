@@ -61,6 +61,7 @@ class PerSlotMotifExtractor:
         sequences: np.ndarray,
         slot_id: int = 0,
         tf_name: Optional[str] = None,
+        per_sample_importance: Optional[np.ndarray] = None,
     ) -> ExtractedMotif:
         """
         Extract a motif from averaged importance scores.
@@ -70,6 +71,7 @@ class PerSlotMotifExtractor:
             sequences:  [N, L, 4] one-hot sequences that contributed
             slot_id:    Slot index
             tf_name:    Optional TF name label
+            per_sample_importance: [N, L, 4] optional (kept for API compat)
 
         Returns:
             ExtractedMotif with PFM, CWM, and seqlet coordinates
