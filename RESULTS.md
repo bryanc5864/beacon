@@ -2682,23 +2682,68 @@ Attention entropy is consistent across cell types (< 2% difference), indicating 
 
 **TF identity explains 42% of slot embedding variance vs only 0.6% for cell type.** Slot representations are overwhelmingly TF-specific, not cell-type-specific — a strong interpretability result confirming that BEACON learns generalizable TF binding patterns.
 
+### Attention Localization
+
+Core interpretability validation: do attention peaks actually localize to binding sites?
+
+| Dataset | Mean dist (bp) [95% CI] | Within 50bp | Enrichment | n |
+|---------|------------------------|-------------|------------|---|
+| K562-7tf | 14.2 [13.6, 14.7] | 99.8% | 17.4x | 1,039 |
+| K562-fulltf | 18.4 [17.6, 19.4] | 94.7% | 14.3x | 3,633 |
+| HepG2-7tf | 14.0 [13.6, 14.6] | 98.3% | 15.3x | 3,821 |
+| HepG2-fulltf | 14.1 [13.7, 14.6] | 98.7% | 16.4x | 6,276 |
+
+**Attention peaks localize within 14-18 bp of true binding sites** across all 4 datasets. Attention at binding sites is **14-17x more concentrated** than at random positions. Per-TF results (K562-7tf): all TFs achieve >99% within 50bp except CTCF (99.4%).
+
+**Slot utilization caveat**: Only 1/16 slots is ever activated across all datasets. The model routes all TFs through a single shared slot (slot 0), differentiating via TF logits rather than spatial segregation. This is a fundamental design observation — with single-site training data, the model learns an efficient single-slot strategy.
+
+### Robustness to Sequence Perturbation
+
+| Mutation Rate | BEACON r | BEACON Retained | BPNet r | BPNet Retained |
+|--------------|---------|-----------------|---------|----------------|
+| 0% (clean) | 0.910 | 100% | 0.346 | 100% |
+| 5% | 0.908 | 99.7% | 0.341 | 98.4% |
+| 10% | 0.899 | 98.7% | 0.337 | 97.3% |
+| 20% | 0.895 | 98.3% | 0.331 | 95.6% |
+| 30% | 0.881 | 96.7% | 0.325 | 94.0% |
+
+**BEACON retains 96.7% of clean performance at 30% sequence mutation.** Both models show graceful degradation, but BEACON maintains much higher absolute performance throughout.
+
+### Fair BPNet Comparison (Per-TF Dedicated Models)
+
+The fairest comparison: 7 separately-trained BPNet models (one per TF, 142K params each, 997K total) vs 1 BEACON model (851K params).
+
+| TF | BEACON | BPNet (dedicated) | Delta |
+|----|--------|-------------------|-------|
+| CTCF | 0.922 | 0.906 | +0.016 |
+| GATA1 | 0.844 | 0.779 | +0.065 |
+| TAL1 | 0.968 | 0.787 | +0.182 |
+| MYC | 0.825 | 0.668 | +0.156 |
+| MAX | 0.876 | 0.774 | +0.103 |
+| SPI1 | 0.947 | 0.914 | +0.033 |
+| CEBPB | 0.942 | 0.864 | +0.079 |
+| **Mean** | **0.904** | **0.813** | **+0.090** |
+
+**BEACON outperforms 7 dedicated BPNet models on every TF** (mean +0.090), with the largest gains on TFs with weaker signals (TAL1 +0.182, MYC +0.156). BEACON achieves this with a single multi-TF model using fewer total parameters (851K vs 997K).
+
 ---
 
 ## Updated Comprehensive Summary
 
 ### BEACON vs Alternatives (Updated)
 
-| Capability | BEACON | BPNet | ChromBPNet |
+| Capability | BEACON | 7×BPNet (dedicated) | BPNet (aggregate) |
 |-----------|:-:|:-:|:-:|
-| Multi-TF single model | 7-14 TFs | 1 TF per model | 1 TF per model |
-| Profile Pearson (mean) | **0.878** | 0.604 | N/A (ATAC-seq only) |
-| TF identity prediction | 67-76% | Not supported | Not supported |
-| Position prediction | **<0.05 bp MAE** | Not supported | Not supported |
+| Multi-TF single model | 7-14 TFs | 1 TF per model | 1 model, aggregated |
+| Profile Pearson (K562-7tf) | **0.904** | 0.813 | 0.346 |
+| TF identity prediction | 67-76% | N/A (implicit) | Not supported |
+| Attention localization | **14 bp mean, 99.8% ≤50bp** | N/A | N/A |
+| Attention enrichment | **17.4x** | N/A | N/A |
+| Robustness (30% mutation) | **96.7% retained** | N/A | 94.0% retained |
 | Cross-cell transfer | 94.3% efficiency | Not tested | Not tested |
 | Gradient-motif enrichment | **2.88x** | N/A | N/A |
 | Attention faithfulness | **100% positive r** | N/A | N/A |
 | Linear TF decodability | **95.4%** | N/A | N/A |
 | Embedding: TF vs cell R² | **42% vs 0.6%** | N/A | N/A |
-| Throughput (BS=32) | 165 samples/sec | 255 samples/sec | N/A |
-| Interpretable slots | 16 slots | None | None |
-| Parameters | 851K | 109K | ~500K |
+| Throughput (BS=32) | 165 samples/sec | N/A | 255 samples/sec |
+| Parameters | 851K | 997K (7×142K) | 109K |

@@ -317,8 +317,100 @@ def table_throughput(tp):
     return "\n".join(lines)
 
 
+def table_attention_localization(attn):
+    lines = ["## Table 13: Attention Localization", "",
+             "| Dataset | Mean dist (bp) | Median dist (bp) | Within 50bp | Enrichment | n |",
+             "|---------|---------------|------------------|-------------|------------|---|"]
+    if not attn:
+        return "\n".join(lines + ["| *(not yet computed)* | | | | | |"])
+    for ds in ["K562-7tf", "K562-fulltf", "HepG2-7tf", "HepG2-fulltf"]:
+        d = attn.get(ds, {}).get("localization")
+        if not d:
+            continue
+        ci = d.get("distance_ci", {})
+        ci_str = f" [{ci.get('ci_lower',0):.1f}, {ci.get('ci_upper',0):.1f}]" if ci else ""
+        lines.append(f"| {ds} | {d['mean_distance_bp']:.1f}{ci_str} | "
+                     f"{d['median_distance_bp']:.0f} | "
+                     f"{d['within_50bp']:.1%} | "
+                     f"{d['attention_enrichment']:.1f}x | "
+                     f"{d['n_sites']} |")
+
+    # Per-TF detail for K562-7tf
+    k562_tf = attn.get("K562-7tf", {}).get("per_tf_localization", {})
+    if k562_tf:
+        lines += ["", "### Per-TF Attention Localization (K562-7tf)", "",
+                   "| TF | Mean dist (bp) | Within 50bp | n |",
+                   "|----|---------------|-------------|---|"]
+        for tf, d in k562_tf.items():
+            if 'mean_distance_bp' in d:
+                lines.append(f"| {tf} | {d['mean_distance_bp']:.1f} | "
+                             f"{d['within_50bp']:.1%} | {d['n']} |")
+
+    # Slot utilization
+    lines += ["", "### Slot Utilization", "",
+               "| Dataset | Mean active | Effective slots | Ever active / Total |",
+               "|---------|------------|----------------|---------------------|"]
+    for ds in ["K562-7tf", "K562-fulltf", "HepG2-7tf", "HepG2-fulltf"]:
+        u = attn.get(ds, {}).get("slot_utilization")
+        if not u:
+            continue
+        lines.append(f"| {ds} | {u['mean_active_slots']:.2f} | "
+                     f"{u['effective_n_slots']:.2f} | "
+                     f"{u['n_slots_ever_active']}/{len(u['slot_activation_freq'])} |")
+
+    return "\n".join(lines)
+
+
+def table_robustness(rob):
+    lines = ["## Table 14: Robustness Analysis", ""]
+    if not rob:
+        return "\n".join(lines + ["*(not yet computed)*"])
+
+    # Robustness curve
+    beacon_rob = rob.get("beacon_robustness", {})
+    if beacon_rob:
+        lines += ["### BEACON Robustness to Sequence Perturbation", "",
+                   "| Mutation rate | Profile r | Retained |",
+                   "|--------------|-----------|----------|"]
+        for rate in sorted(beacon_rob.keys(), key=float):
+            d = beacon_rob[rate]
+            lines.append(f"| {float(rate)*100:.0f}% | {d['mean_r']:.4f} | {d['relative_retained']:.1%} |")
+
+    # BPNet comparison
+    bpnet_rob = rob.get("bpnet_robustness", {})
+    if bpnet_rob:
+        lines += ["", "### BPNet Robustness", "",
+                   "| Mutation rate | Profile r | Retained |",
+                   "|--------------|-----------|----------|"]
+        for rate in sorted(bpnet_rob.keys(), key=float):
+            d = bpnet_rob[rate]
+            lines.append(f"| {float(rate)*100:.0f}% | {d['mean_r']:.4f} | {d['relative_retained']:.1%} |")
+
+    # Multi-site test
+    multi = rob.get("multi_site", {})
+    if multi and "error" not in multi:
+        lines += ["", "### Multi-Site Synthetic Test", "",
+                   f"- Pairs tested: {multi.get('n_pairs', 0)}",
+                   f"- Mean active slots (combined): {multi.get('mean_active_slots_combined', 0):.2f}",
+                   f"- Mean active slots (single): {multi.get('mean_active_slots_single', 0):.2f}",
+                   f"- 2+ slots activated: {multi.get('two_plus_slots_rate', 0):.1%}",
+                   f"- Both TFs detected: {multi.get('both_tfs_detected_rate', 0):.1%}"]
+
+    # Fair BPNet comparison
+    fair = rob.get("fair_bpnet_comparison", {})
+    if fair:
+        lines += ["", "### Fair BPNet Per-TF Comparison", "",
+                   "| TF | BEACON r | BPNet r | Delta |",
+                   "|----|---------|---------|-------|"]
+        for tf, d in fair.items():
+            if 'beacon_r' in d:
+                lines.append(f"| {tf} | {d['beacon_r']:.3f} | {d['bpnet_r']:.3f} | {d.get('delta', 0):+.3f} |")
+
+    return "\n".join(lines)
+
+
 def table_cross_cell(cc):
-    lines = ["## Table 13: Extended Cross-Cell Analysis", ""]
+    lines = ["## Table 15: Extended Cross-Cell Analysis", ""]
     if not cc:
         return "\n".join(lines + ["*(not yet computed)*"])
 
@@ -391,6 +483,8 @@ def main():
     emb = _load(edir, "slot_embedding_analysis.json")
     tp = _load(edir, "throughput_benchmark.json")
     cc = _load(edir, "cross_cell_analysis.json")
+    attn_loc = _load(edir, "attention_localization.json")
+    rob = _load(edir, "robustness_analysis.json")
 
     md_tables = {
         "table1_main.md": table_main(stats, metrics),
@@ -405,6 +499,8 @@ def main():
         "table10_slot_embeddings.md": table_slot_embeddings(emb),
         "table11_throughput.md": table_throughput(tp),
         "table12_cross_cell.md": table_cross_cell(cc),
+        "table13_attention_localization.md": table_attention_localization(attn_loc),
+        "table14_robustness.md": table_robustness(rob),
     }
     for name, content in md_tables.items():
         (tdir / name).write_text(content + "\n")
@@ -420,7 +516,7 @@ def main():
     (tdir / "all_tables.md").write_text("\n".join(combined))
     print(f"  all_tables.md")
 
-    all_sources = [stats, ism, err, seeds, coop, pos, sal, emb, tp, cc]
+    all_sources = [stats, ism, err, seeds, coop, pos, sal, emb, tp, cc, attn_loc, rob]
     n_loaded = sum(1 for x in all_sources if x)
     print(f"\nCompiled {len(md_tables)} tables ({n_loaded}/{len(all_sources)} data sources)")
     print(f"Output: {tdir}")

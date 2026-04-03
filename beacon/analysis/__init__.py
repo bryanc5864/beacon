@@ -47,6 +47,13 @@ from .cross_cell import (
     motif_level_transfer, attention_pattern_transfer,
     cell_specific_vs_shared_features,
 )
+from .attention_localization import (
+    attention_peak_at_binding_site, per_tf_attention_localization,
+    attention_entropy_analysis, effective_slot_utilization,
+)
+from .robustness import (
+    perturb_sequences, robustness_curve, multi_site_synthetic_test,
+)
 
 __all__ = [
     # Motif / variant
@@ -88,4 +95,9 @@ __all__ = [
     # Cross-cell
     "motif_level_transfer", "attention_pattern_transfer",
     "cell_specific_vs_shared_features",
+    # Attention localization
+    "attention_peak_at_binding_site", "per_tf_attention_localization",
+    "attention_entropy_analysis", "effective_slot_utilization",
+    # Robustness
+    "perturb_sequences", "robustness_curve", "multi_site_synthetic_test",
 ]
