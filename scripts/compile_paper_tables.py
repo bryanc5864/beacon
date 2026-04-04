@@ -346,18 +346,6 @@ def table_attention_localization(attn):
                 lines.append(f"| {tf} | {d['mean_distance_bp']:.1f} | "
                              f"{d['within_50bp']:.1%} | {d['n']} |")
 
-    # Slot utilization
-    lines += ["", "### Slot Utilization", "",
-               "| Dataset | Mean active | Effective slots | Ever active / Total |",
-               "|---------|------------|----------------|---------------------|"]
-    for ds in ["K562-7tf", "K562-fulltf", "HepG2-7tf", "HepG2-fulltf"]:
-        u = attn.get(ds, {}).get("slot_utilization")
-        if not u:
-            continue
-        lines.append(f"| {ds} | {u['mean_active_slots']:.2f} | "
-                     f"{u['effective_n_slots']:.2f} | "
-                     f"{u['n_slots_ever_active']}/{len(u['slot_activation_freq'])} |")
-
     return "\n".join(lines)
 
 
@@ -385,16 +373,6 @@ def table_robustness(rob):
         for rate in sorted(bpnet_rob.keys(), key=float):
             d = bpnet_rob[rate]
             lines.append(f"| {float(rate)*100:.0f}% | {d['mean_r']:.4f} | {d['relative_retained']:.1%} |")
-
-    # Multi-site test
-    multi = rob.get("multi_site", {})
-    if multi and "error" not in multi:
-        lines += ["", "### Multi-Site Synthetic Test", "",
-                   f"- Pairs tested: {multi.get('n_pairs', 0)}",
-                   f"- Mean active slots (combined): {multi.get('mean_active_slots_combined', 0):.2f}",
-                   f"- Mean active slots (single): {multi.get('mean_active_slots_single', 0):.2f}",
-                   f"- 2+ slots activated: {multi.get('two_plus_slots_rate', 0):.1%}",
-                   f"- Both TFs detected: {multi.get('both_tfs_detected_rate', 0):.1%}"]
 
     # Fair BPNet comparison
     fair = rob.get("fair_bpnet_comparison", {})

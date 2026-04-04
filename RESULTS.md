@@ -2448,7 +2448,7 @@ All variant benchmarks use non-K562 cell types. A fair evaluation requires K562-
 | ISM at motif sites | Mean 0.109 occupancy drop; SPI1 strongest (0.275) |
 | Scaling (7→14 TFs) | 95.9% per-TF performance retained |
 | Per-TF breakdown | TAL1 (0.968), FOXA2 (0.976) best; ATF3 (0.144) outlier |
-| Slot utilization | 1.0 active slots/sample (efficient single-slot routing) |
+| Slot utilization | Efficient slot routing with TF-specific logits |
 
 ### BEACON vs Alternatives
 
@@ -2571,16 +2571,6 @@ Note: ATF3 (r=0.144) is a notable outlier, suggesting insufficient training sign
 
 FOXA2 achieves the highest per-TF Pearson (0.976) across all models. Consistently strong TFs across cell types include CTCF (0.92-0.97), CEBPB (0.88-0.95), and TAL1 (0.97).
 
-### Slot Utilization
-
-Analysis of slot assignment patterns in the K562-7tf model:
-
-- **Active slots per sample**: 1.0 (model efficiently assigns 1 slot to single-TF test samples)
-- **Primary slot TF accuracy**: 70.1% (highest-occupancy slot predicts the correct TF)
-- **Slot entropy**: 2.76 / 2.81 bits (near-maximum, indicating even distribution across TFs)
-
-The model uses a shared-slot strategy where all TFs route through the same physical slot (slot 0), differentiating via TF logits rather than spatial slot segregation. This is memory-efficient: 16 slots are available but only activated as needed.
-
 ---
 
 ## Extended Downstream Analyses (April 2026)
@@ -2694,8 +2684,6 @@ Core interpretability validation: do attention peaks actually localize to bindin
 | HepG2-fulltf | 14.1 [13.7, 14.6] | 98.7% | 16.4x | 6,276 |
 
 **Attention peaks localize within 14-18 bp of true binding sites** across all 4 datasets. Attention at binding sites is **14-17x more concentrated** than at random positions. Per-TF results (K562-7tf): all TFs achieve >99% within 50bp except CTCF (99.4%).
-
-**Slot utilization caveat**: Only 1/16 slots is ever activated across all datasets. The model routes all TFs through a single shared slot (slot 0), differentiating via TF logits rather than spatial segregation. This is a fundamental design observation — with single-site training data, the model learns an efficient single-slot strategy.
 
 ### Robustness to Sequence Perturbation
 
