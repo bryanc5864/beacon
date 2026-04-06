@@ -56,13 +56,6 @@ BEACON consists of four components (Fig.~\ref{fig:arch}):
 \textbf{(3)} $K{=}16$ learnable slots compete for sequence positions via $T{=}3$ iterations of slot attention with per-slot softmax and GRU updates.
 \textbf{(4)} Per-slot heads predict binding site position (Gaussian $\mu, \sigma$), TF identity (softmax), and occupancy (sigmoid). The binding profile is reconstructed as a mixture of slot Gaussians.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig3_interpretability.pdf}
-\caption{\textbf{Interpretable binding decomposition.} (A)~Slot attention maps: each slot focuses sharply on one binding site. (B)~Gradient-derived motifs correlate with JASPAR PWMs (mean $r=0.55$; 5/7 TFs $>0.50$). (C)~Per-TF classification accuracy via Hungarian matching.}
-\label{fig:arch}
-\end{figure}
-
 \subsection{Training and Data}
 
 BEACON is trained end-to-end with a composite loss combining profile reconstruction (KL + MSE), Hungarian-matched~\cite{carion2020} site position loss (solving permutation invariance), TF classification cross-entropy, and slot diversity regularization. We use chromosome-based train/val/test splits (chr1--17/18--19/20--22,X). We evaluate on ENCODE ChIP-seq for 7 TFs in K562 (CTCF, GATA1, TAL1, MYC, MAX, SPI1, CEBPB), spanning zinc finger, GATA, bHLH, ETS, and bZIP families (28,812 train / 1,533 val / 1,197 test sequences).
@@ -76,6 +69,13 @@ BEACON achieves mean profile Pearson $r=0.901$ across 7 TFs, surpassing BPNet ($
 \subsection{Interpretability and Generalization}
 
 Unlike BPNet's predict-then-attribute paradigm, BEACON's per-slot outputs directly enumerate binding events (Fig.~\ref{fig:arch}A). Gradient-derived motifs recover canonical JASPAR PWMs (mean $r=0.55$; CTCF $r=0.78$, TAL1 $r=0.76$; Fig.~\ref{fig:arch}B). Ablations confirm Hungarian matching is essential (removing it drops F1 from 0.98 to 0.81), as is slot diversity regularization (F1 drops to 0.72 without it). Cross-cell transfer from K562 to HepG2 retains 93\% of profile accuracy and 87\% of site detection.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=\columnwidth]{fig3_interpretability.pdf}
+\caption{\textbf{Interpretable binding decomposition.} (A)~Slot attention maps: each slot focuses sharply on one binding site. (B)~Gradient-derived motifs correlate with JASPAR PWMs (mean $r=0.55$; 5/7 TFs $>0.50$). (C)~Per-TF classification accuracy via Hungarian matching.}
+\label{fig:arch}
+\end{figure}
 
 \begin{table}[t]
 \centering
