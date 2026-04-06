@@ -1,6 +1,7 @@
-\documentclass[9pt,twocolumn]{article}
+\documentclass[11pt]{article}
 
-\usepackage[letterpaper, margin=0.65in, top=0.75in, bottom=0.65in]{geometry}
+% Page geometry — ISMB oral submission format (single column)
+\usepackage[letterpaper, margin=1in]{geometry}
 \usepackage{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
@@ -10,45 +11,34 @@
 \usepackage{enumitem}
 \usepackage{titlesec}
 \usepackage{microtype}
+\usepackage{newtxtext,newtxmath} % Times New Roman for text and math
 
-% Tight spacing
-\setlength{\parskip}{1.5pt plus 1pt}
-\setlength{\parindent}{0.4em}
-\setlength{\columnsep}{0.25in}
-\titlespacing*{\section}{0pt}{5pt}{2pt}
-\titlespacing*{\subsection}{0pt}{3pt}{1pt}
-\titleformat{\section}{\normalfont\bfseries\small}{\thesection.}{0.4em}{}
-\titleformat{\subsection}{\normalfont\bfseries\footnotesize}{\thesubsection.}{0.4em}{}
-\captionsetup{font=footnotesize,labelfont=bf,skip=3pt}
-\setlist{nosep,leftmargin=1.0em}
-\renewcommand{\refname}{\small References}
-\setlength{\textfloatsep}{6pt plus 2pt minus 2pt}
-\setlength{\floatsep}{4pt plus 2pt minus 2pt}
-\setlength{\intextsep}{4pt plus 2pt minus 2pt}
-\setlength{\dbltextfloatsep}{6pt plus 2pt minus 2pt}
-\setlength{\dblfloatsep}{4pt plus 2pt minus 2pt}
+% Spacing
+\setlength{\parskip}{3pt plus 1pt}
+\setlength{\parindent}{0.5em}
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+\titlespacing*{\subsection}{0pt}{6pt}{3pt}
+\titleformat{\section}{\normalfont\bfseries\large}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalfont\bfseries\normalsize}{\thesubsection.}{0.5em}{}
+\captionsetup{font=small,labelfont=bf,skip=5pt}
+\setlist{nosep,leftmargin=1.2em}
+\renewcommand{\refname}{References}
 
 \graphicspath{{figures/}}
 
 \begin{document}
 
-\twocolumn[
-\begin{@twocolumnfalse}
 \begin{center}
-{\large\bfseries BEACON: Interpretable Transcription Factor Binding Site\\[1pt]
+{\Large\bfseries BEACON: Interpretable Transcription Factor Binding Site\\[2pt]
 Discovery via Compositional Slot Attention}
+\vspace{6pt}
+
+{\normalsize Anonymous Authors}
 \vspace{4pt}
 
-{\small
-Bryan Chen$^{1}$, Zhaozhong Zhao$^{1}$\\[1pt]
-\textit{$^{1}$Department of Biomedical Engineering, University of California, Irvine}
-}
-\vspace{2pt}
 \rule{\textwidth}{0.4pt}
 \end{center}
-\vspace{4pt}
-\end{@twocolumnfalse}
-]
+\vspace{8pt}
 
 \section{Introduction}
 
@@ -147,9 +137,8 @@ BEACON introduces a new paradigm for TF binding analysis: rather than predict-th
 
 The MYC--MAX confusion (bHLH family, 3.2$\times$ within- vs.\ between-family) reflects genuine biological ambiguity rather than model failure. Future work will incorporate sequence-level motif priors to resolve such cases, scale to 20+ TFs, and extend to variant effect prediction. BEACON demonstrates that object-centric deep learning transfers effectively from vision to genomics.
 
-Code: \texttt{github.com/bryanc5864/beacon}
+Code will be made available upon publication.
 
-{\footnotesize
 \bibliographystyle{plain}
 \begin{thebibliography}{4}
 \bibitem{avsec2021} Avsec \v{Z} et al. Base-resolution models of TF binding reveal soft motif syntax. \emph{Nat Genet} 53:354 (2021).
@@ -157,6 +146,5 @@ Code: \texttt{github.com/bryanc5864/beacon}
 \bibitem{locatello2020} Locatello F et al. Object-centric learning with slot attention. \emph{NeurIPS} (2020).
 \bibitem{carion2020} Carion N et al. End-to-end object detection with transformers. \emph{ECCV} (2020).
 \end{thebibliography}
-}
 
 \end{document}
