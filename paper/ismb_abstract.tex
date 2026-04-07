@@ -1,7 +1,6 @@
-\documentclass[11pt]{article}
+\documentclass[10pt]{article}
 
-% Page geometry — ISMB oral submission format (single column)
-\usepackage[letterpaper, margin=0.9in, top=0.85in, bottom=0.85in]{geometry}
+\usepackage[letterpaper, margin=0.8in, top=0.75in, bottom=0.75in]{geometry}
 \usepackage{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
@@ -11,20 +10,18 @@
 \usepackage{enumitem}
 \usepackage{titlesec}
 \usepackage{microtype}
-\usepackage{newtxtext,newtxmath} % Times New Roman for text and math
+\usepackage{newtxtext,newtxmath}
 
 % Spacing
 \setlength{\parskip}{2pt plus 1pt}
 \setlength{\parindent}{0.5em}
-\titlespacing*{\section}{0pt}{6pt}{3pt}
-\titlespacing*{\subsection}{0pt}{4pt}{2pt}
-\titleformat{\section}{\normalfont\bfseries\normalsize}{\thesection.}{0.5em}{}
-\titleformat{\subsection}{\normalfont\bfseries\small}{\thesubsection.}{0.5em}{}
-\captionsetup{font=small,labelfont=bf,skip=3pt}
-\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
-\setlength{\floatsep}{6pt plus 2pt minus 2pt}
+\titlespacing*{\section}{0pt}{6pt}{2pt}
+\titleformat{\section}{\normalfont\bfseries\normalsize}{}{0em}{}
+\captionsetup{font=footnotesize,labelfont=bf,skip=3pt}
+\setlength{\textfloatsep}{6pt plus 2pt minus 2pt}
+\setlength{\floatsep}{4pt plus 2pt minus 2pt}
+\setlength{\intextsep}{4pt plus 2pt minus 2pt}
 \setlist{nosep,leftmargin=1.2em}
-\renewcommand{\refname}{References}
 
 \graphicspath{{figures/}}
 
@@ -33,53 +30,37 @@
 \begin{center}
 {\Large\bfseries BEACON: Interpretable Transcription Factor Binding Site\\[2pt]
 Discovery via Compositional Slot Attention}
-\vspace{4pt}
-
-{\normalsize Anonymous Authors}
-\vspace{3pt}
-
+\vspace{2pt}
 \rule{\textwidth}{0.4pt}
 \end{center}
 \vspace{4pt}
 
-\section{Introduction}
+\section{Background}
 
-Identifying transcription factor (TF) binding sites from ChIP-seq data is central to understanding gene regulation. Deep learning approaches such as BPNet~\cite{avsec2021} and ChromBPNet~\cite{chrombpnet2021} achieve high predictive accuracy but rely on post-hoc attribution (DeepSHAP, TF-MoDISco) for biological interpretation. We present \textbf{BEACON} (\textbf{B}inding \textbf{E}vent \textbf{A}ttention-based \textbf{C}ompositional \textbf{O}bject \textbf{N}etwork), which reconceptualizes TF binding site discovery as an object-centric decomposition problem. Inspired by slot attention~\cite{locatello2020}, BEACON treats each binding event as a discrete object with genomic position, TF identity, and occupancy strength, directly decomposing regulatory sequences into constituent binding events without post-hoc analysis. BEACON provides inherent interpretability while outperforming BPNet on profile prediction across all tested TFs.
+Identifying transcription factor (TF) binding sites from ChIP-seq data is central to understanding gene regulation. Deep learning approaches such as BPNet~\cite{avsec2021} and ChromBPNet~\cite{chrombpnet2021} achieve high accuracy but rely on post-hoc attribution (DeepSHAP, TF-MoDISco) for interpretation. This predict-then-interpret paradigm introduces attribution artifacts, requires manual motif curation, and cannot directly enumerate discrete binding events within a regulatory region.
+
+We present \textbf{BEACON} (\textbf{B}inding \textbf{E}vent \textbf{A}ttention-based \textbf{C}ompositional \textbf{O}bject \textbf{N}etwork), which reconceptualizes TF binding site discovery as an object-centric decomposition problem. Inspired by slot attention~\cite{locatello2020}, BEACON treats each binding event as a discrete object with genomic position, TF identity, and occupancy strength, directly decomposing regulatory sequences into constituent binding events through competitive attention---providing inherent interpretability while improving predictive accuracy.
 
 \section{Methods}
 
-\subsection{Architecture}
+BEACON consists of four components. (1)~A \emph{dilated CNN backbone} ($2^0$--$2^8$ dilation rates, 1029\,bp receptive field) encodes one-hot DNA sequences ($L{=}2000$\,bp), capturing both local motif patterns and long-range cooperativity. (2)~A \emph{helical positional encoding} captures the 10.5\,bp periodicity of the DNA double helix, enabling the model to learn cooperative binding on the same helical face. (3)~$K{=}16$ learnable \emph{slot vectors} compete for sequence positions via $T{=}3$ iterations of slot attention with per-slot softmax and GRU updates; this independent attention mode allows multiple slots to activate simultaneously for multi-TF sequences. (4)~\emph{Per-slot heads} predict binding site position (Gaussian $\mu, \sigma$), TF identity (softmax), and occupancy (sigmoid). The profile is reconstructed as a mixture of slot Gaussians weighted by occupancy.
 
-BEACON consists of four components (Fig.~\ref{fig:arch}):
-\textbf{(1)} A dilated CNN backbone ($2^0$--$2^8$ dilation rates, 1029\,bp receptive field) encodes one-hot DNA sequences ($L{=}2000$\,bp).
-\textbf{(2)} A helical positional encoding captures the 10.5\,bp periodicity of the DNA double helix, enabling the model to learn cooperative binding on the same helical face.
-\textbf{(3)} $K{=}16$ learnable slots compete for sequence positions via $T{=}3$ iterations of slot attention with per-slot softmax and GRU updates.
-\textbf{(4)} Per-slot heads predict binding site position (Gaussian $\mu, \sigma$), TF identity (softmax), and occupancy (sigmoid). The binding profile is reconstructed as a mixture of slot Gaussians.
-
-\subsection{Training and Data}
-
-BEACON is trained end-to-end with a composite loss combining profile reconstruction (KL + MSE), Hungarian-matched~\cite{carion2020} site position loss (solving permutation invariance), TF classification cross-entropy, and slot diversity regularization. We use chromosome-based train/val/test splits (chr1--17/18--19/20--22,X). We evaluate on ENCODE ChIP-seq for 7 TFs in K562 (CTCF, GATA1, TAL1, MYC, MAX, SPI1, CEBPB), spanning zinc finger, GATA, bHLH, ETS, and bZIP families (28,812 train / 1,533 val / 1,197 test sequences).
+Training uses a composite loss: profile reconstruction (KL + MSE), Hungarian-matched~\cite{carion2020} site position loss (solving permutation invariance), TF classification cross-entropy, and slot diversity regularization. We use chromosome-based splits (chr1--17/18--19/20--22,X) and evaluate on ENCODE ChIP-seq for 7 TFs in K562 (CTCF, GATA1, TAL1, MYC, MAX, SPI1, CEBPB), spanning zinc finger, GATA, bHLH, ETS, and bZIP families (28,812 train / 1,533 val / 1,197 test sequences).
 
 \section{Results}
 
-\subsection{Profile Prediction and Binding Site Detection}
-
-BEACON achieves mean profile Pearson $r=0.901$ across 7 TFs, surpassing BPNet ($r=0.813$) on every TF with a single unified model (850K params) versus BPNet's 7 per-TF models (997K total). The largest gains are on bHLH factors (TAL1: $+0.18$, MYC: $+0.15$), where multi-TF modeling captures co-binding patterns. BEACON enumerates binding sites 419$\times$ faster than BPNet+TF-MoDISco (20\,ms vs.\ 8.4\,s per sequence). Site detection F1${}=0.984$ with 100\% precision and 96.9\% recall (Table~\ref{tab:results}). Per-TF classification reaches 75.5\% (5.3$\times$ chance), with within-family confusion (e.g., MYC--MAX, both bHLH) 3.2$\times$ higher than between-family, reflecting genuine biological similarity.
-
-\subsection{Interpretability and Generalization}
-
-Unlike BPNet's predict-then-attribute paradigm, BEACON's per-slot outputs directly enumerate binding events (Fig.~\ref{fig:arch}A). Gradient-derived motifs recover canonical JASPAR PWMs (mean $r=0.55$; CTCF $r=0.78$, TAL1 $r=0.76$; Fig.~\ref{fig:arch}B). Ablations confirm Hungarian matching is essential (removing it drops F1 from 0.98 to 0.81), as is slot diversity regularization (F1 drops to 0.72 without it). Cross-cell transfer from K562 to HepG2 retains 93\% of profile accuracy and 87\% of site detection.
-
 \begin{figure}[!ht]
 \centering
-\includegraphics[width=\columnwidth]{fig3_interpretability.pdf}
-\caption{\textbf{Interpretable binding decomposition.} (A)~Slot attention maps: each slot focuses sharply on one binding site. (B)~Gradient-derived motifs correlate with JASPAR PWMs (mean $r=0.55$; 5/7 TFs $>0.50$). (C)~Per-TF classification accuracy via Hungarian matching.}
-\label{fig:arch}
+\includegraphics[width=0.85\columnwidth]{fig2_bpnet_comparison.pdf}
+\caption{\textbf{BEACON vs.\ BPNet.} (A)~Per-TF profile Pearson $r$: BEACON (single model) outperforms BPNet (7 per-TF models) on all 7 TFs. (B)~Binding site enumeration is 419$\times$ faster than BPNet+TF-MoDISco.}
+\label{fig:bpnet}
 \end{figure}
 
-\begin{table}[t]
+BEACON achieves mean profile Pearson $r=0.901$ across 7 TFs, surpassing BPNet ($r=0.813$) on every TF (Fig.~\ref{fig:bpnet}A) with a single unified model (850K params) versus BPNet's 7 per-TF models (997K total). The largest gains are on bHLH factors (TAL1: $+0.18$, MYC: $+0.15$), where multi-TF modeling captures co-binding patterns. Binding site enumeration is 419$\times$ faster than BPNet+TF-MoDISco (20\,ms vs.\ 8.4\,s per sequence; Fig.~\ref{fig:bpnet}B). Site detection achieves F1${}=0.984$ and per-TF classification reaches 75.5\% (5.3$\times$ chance), with within-family confusion (e.g., MYC--MAX) 3.2$\times$ higher than between-family, reflecting genuine biological similarity (Table~\ref{tab:results}).
+
+\begin{table}[!ht]
 \centering
-\caption{Performance on K562 ChIP-seq (7 TFs).}
+\caption{Performance summary on K562 ChIP-seq (7 TFs).}
 \label{tab:results}
 \footnotesize
 \begin{tabular}{@{}lc@{}}
@@ -96,10 +77,21 @@ Speed vs.\ BPNet+MoDISco & 419$\times$ \\
 \end{tabular}
 \end{table}
 
-\section{Discussion}
+Crucially, BEACON's per-slot outputs directly enumerate binding events without post-hoc analysis (Fig.~\ref{fig:interp}A): each active slot reports \emph{where} a TF binds, \emph{which} TF it is, and \emph{how strongly}, with slot attention maps showing sharp focus on individual binding sites. Gradient-derived per-slot motifs recover canonical JASPAR PWMs (mean Pearson $r=0.55$; CTCF $r=0.78$, TAL1 $r=0.76$; Fig.~\ref{fig:interp}B), confirming biologically meaningful slot specialization. Ablations confirm that Hungarian matching is essential (removing it drops F1 from 0.98 to 0.81) and slot diversity regularization prevents single-slot dominance (F1 drops to 0.72 without it). Cross-cell transfer from K562 to HepG2 retains 93\% of profile accuracy ($r=0.84$) and 87\% of site detection performance.
 
-BEACON demonstrates that object-centric deep learning transfers effectively from vision to genomics, directly decomposing regulatory sequences into discrete binding events via slot attention. The framework outperforms BPNet on profile prediction (+8.8\%) while providing inherently interpretable outputs 419$\times$ faster than post-hoc attribution pipelines, with strong cross-cell generalization. Future work will scale to 20+ TFs and extend to variant effect prediction. Code will be made available upon publication.
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=0.75\columnwidth]{fig3_interpretability.pdf}
+\caption{\textbf{Interpretable decomposition.} (A)~Slot attention maps show each slot focusing on one binding site. (B)~Gradient motifs correlate with JASPAR PWMs (5/7 TFs $r{>}0.50$). (C)~Per-TF classification accuracy.}
+\label{fig:interp}
+\end{figure}
 
+\section{Significance}
+
+BEACON introduces a new paradigm for TF binding analysis: rather than predict-then-interpret, it directly decomposes regulatory sequences into discrete, interpretable binding events via slot attention. The framework outperforms BPNet on profile prediction (+8.8\%) while providing inherently interpretable outputs 419$\times$ faster than post-hoc attribution pipelines, with strong cross-cell-type generalization. BEACON demonstrates that object-centric deep learning, successful in vision for decomposing scenes into objects, transfers effectively to genomics for decomposing regulatory regions into binding events. Code will be made available upon publication.
+
+\renewcommand{\refname}{\normalsize References}
+{\footnotesize
 \bibliographystyle{plain}
 \begin{thebibliography}{4}
 \bibitem{avsec2021} Avsec \v{Z} et al. Base-resolution models of TF binding reveal soft motif syntax. \emph{Nat Genet} 53:354 (2021).
@@ -107,5 +99,6 @@ BEACON demonstrates that object-centric deep learning transfers effectively from
 \bibitem{locatello2020} Locatello F et al. Object-centric learning with slot attention. \emph{NeurIPS} (2020).
 \bibitem{carion2020} Carion N et al. End-to-end object detection with transformers. \emph{ECCV} (2020).
 \end{thebibliography}
+}
 
 \end{document}

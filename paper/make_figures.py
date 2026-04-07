@@ -40,7 +40,7 @@ TF_COLORS = {
     'CEBPB': '#F781BF',
 }
 
-OUT = 'C:/Users/zhaoz/beacon-paper/figures'
+OUT = 'C:/Users/zhaoz/beacon-build/paper/figures'
 import os
 os.makedirs(OUT, exist_ok=True)
 
@@ -107,9 +107,9 @@ def fig_bpnet_comparison():
 # FIGURE 3: Interpretability — attention heatmap + motif logos
 # ============================================================
 def fig_interpretability():
-    fig = plt.figure(figsize=(6.5, 2.8))
+    fig = plt.figure(figsize=(6.5, 3.2))
     gs = gridspec.GridSpec(2, 3, figure=fig, height_ratios=[1.2, 1],
-                           hspace=0.45, wspace=0.35)
+                           hspace=0.7, wspace=0.4)
 
     # Panel A: Simulated slot attention heatmap
     ax_attn = fig.add_subplot(gs[0, :])
