@@ -46,8 +46,8 @@ Training uses a composite loss: profile reconstruction (KL + MSE), Hungarian-mat
 \centering
 \includegraphics[width=\textwidth,height=1.85in,keepaspectratio]{fig2_bpnet_comparison.pdf}
 \caption{\textbf{BEACON vs.\ BPNet on 7 TFs in K562.}
-\textbf{(A)}~Per-TF profile Pearson $r$: a single BEACON model (850K params) outperforms 7 separately trained BPNet models (997K total params) on every TF, with the largest improvements on bHLH factors (TAL1: $+0.18$, MYC: $+0.15$) where multi-TF modeling captures co-binding patterns inaccessible to per-TF models.
-\textbf{(B)}~Binding site enumeration speed: BEACON directly outputs binding events in 20\,ms per sequence, compared to 8.4\,s for BPNet followed by TF-MoDISco post-hoc attribution---a 419$\times$ speedup that enables genome-wide analysis in minutes rather than hours.}
+\textbf{(A)}~Per-TF profile Pearson $r$: a single BEACON model (850K params) outperforms 7 separately trained BPNet models (997K total params) on every TF. Dashed lines show mean $r$ across TFs ($\bar{r}=0.901$ for BEACON vs.\ $\bar{r}=0.813$ for BPNet). The largest improvements occur on bHLH factors (TAL1: $+0.18$, MYC: $+0.15$), where BEACON's joint multi-TF architecture captures cooperative binding patterns---such as obligate MYC--MAX heterodimerization---that are inaccessible to per-TF models.
+\textbf{(B)}~Binding site enumeration speed: BEACON directly outputs structured binding events (position, identity, confidence) in 20\,ms per sequence, compared to 8.4\,s for BPNet followed by TF-MoDISco post-hoc attribution---a 419$\times$ speedup that enables genome-wide binding catalogues in minutes rather than hours.}
 \label{fig:bpnet}
 \end{figure}
 
@@ -57,9 +57,9 @@ BEACON achieves mean profile Pearson $r=0.901$ across 7 TFs, surpassing BPNet ($
 \centering
 \includegraphics[width=\textwidth]{fig3_interpretability.pdf}
 \caption{\textbf{Interpretable binding event decomposition.}
-\textbf{(A)}~Slot attention maps for an example locus containing 5 binding sites: each slot focuses sharply on a single binding event, with occupancy scores ($occ$) reflecting binding confidence. Slots self-organize to cover distinct genomic positions without supervision.
-\textbf{(B)}~Gradient-derived per-slot motifs correlate with canonical JASPAR position weight matrices (5/7 TFs achieve $r{>}0.50$), confirming that slots learn biologically meaningful sequence features. CTCF ($r=0.78$) and TAL1 ($r=0.76$) show the strongest recovery.
-\textbf{(C)}~Per-TF classification accuracy via Hungarian matching: SPI1 and CEBPB exceed 90\%, while bHLH factors (MYC, TAL1) are harder to discriminate due to shared E-box binding preferences.}
+\textbf{(A)}~Slot attention maps for an example locus containing 5 simultaneous binding sites: each of BEACON's $K{=}16$ slots competes for sequence positions, with active slots focusing sharply on individual binding events. Occupancy scores ($occ$) reflect binding confidence; inactive slots (not shown) have $occ{<}0.5$. Slots self-organize to tile distinct genomic positions without explicit supervision.
+\textbf{(B)}~Gradient-derived per-slot motifs correlate with canonical JASPAR position weight matrices (dashed line: mean $r=0.55$ across 7 TFs; 5/7 exceed $r{>}0.50$), confirming that slots learn biologically meaningful sequence features rather than arbitrary signal partitions. CTCF ($r=0.78$) and TAL1 ($r=0.76$) show the strongest recovery, consistent with their distinctive motif structures.
+\textbf{(C)}~Per-TF classification accuracy via Hungarian-matched slot assignment: SPI1 and CEBPB exceed 90\% (dotted line: 14.3\% chance level), while bHLH factors (MYC, TAL1) are harder to discriminate due to shared E-box binding preferences---within-family confusion is 3.2$\times$ higher than between-family.}
 \label{fig:interp}
 \end{figure}
 

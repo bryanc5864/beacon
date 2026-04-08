@@ -13,12 +13,12 @@ sns.set_style("whitegrid")
 plt.rcParams.update({
     'font.family': 'sans-serif',
     'font.sans-serif': ['Arial', 'DejaVu Sans'],
-    'font.size': 8,
-    'axes.labelsize': 8,
+    'font.size': 9,
+    'axes.labelsize': 9,
     'axes.titlesize': 9,
-    'xtick.labelsize': 7,
-    'ytick.labelsize': 7,
-    'legend.fontsize': 7,
+    'xtick.labelsize': 8,
+    'ytick.labelsize': 8,
+    'legend.fontsize': 8,
     'figure.dpi': 300,
     'savefig.dpi': 300,
     'savefig.bbox': 'tight',
@@ -77,8 +77,12 @@ def fig_bpnet_comparison():
     ax1.axhline(y=np.mean(beacon_r), color=BEACON_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     ax1.axhline(y=np.mean(bpnet_r), color=BPNET_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     # Mean labels
-    ax1.text(6.3, np.mean(beacon_r), f'$\\bar{{r}}$={np.mean(beacon_r):.3f}', fontsize=8, color=BEACON_COLOR, va='center', fontweight='bold')
-    ax1.text(6.3, np.mean(bpnet_r), f'$\\bar{{r}}$={np.mean(bpnet_r):.3f}', fontsize=8, color='#666666', va='center', fontweight='bold')
+    ax1.text(5.8, np.mean(beacon_r) + 0.015, f'$\\bar{{r}}$={np.mean(beacon_r):.3f}', fontsize=8.5,
+             color=BEACON_COLOR, va='bottom', fontweight='bold',
+             bbox=dict(boxstyle='round,pad=0.15', facecolor='white', edgecolor='none', alpha=0.85))
+    ax1.text(5.8, np.mean(bpnet_r) - 0.015, f'$\\bar{{r}}$={np.mean(bpnet_r):.3f}', fontsize=8.5,
+             color='#555555', va='top', fontweight='bold',
+             bbox=dict(boxstyle='round,pad=0.15', facecolor='white', edgecolor='none', alpha=0.85))
     sns.despine(ax=ax1)
 
     # Panel B: Speed comparison
@@ -87,6 +91,9 @@ def fig_bpnet_comparison():
     colors = [BEACON_COLOR, BPNET_COLOR]
 
     bars = ax2.barh(methods, times, color=colors, edgecolor='white', linewidth=0.5, height=0.5, zorder=3)
+    ax2.tick_params(axis='y', labelsize=9)
+    for label in ax2.get_yticklabels():
+        label.set_fontweight('bold')
     ax2.set_xlabel('Time per sequence (s)')
     ax2.set_xscale('log')
     ax2.set_xlim(0.005, 20)
@@ -145,9 +152,9 @@ def fig_interpretability():
     # Occupancy annotations inside the plot area (right-aligned)
     occs = [0.96, 0.84, 0.91, 0.78, 0.72]
     for i, occ in enumerate(occs):
-        ax_attn.text(L - 3, i, f'occ={occ:.2f}', fontsize=6, va='center', ha='right',
+        ax_attn.text(L - 3, i, f'occ={occ:.2f}', fontsize=7.5, va='center', ha='right',
                      color='white', fontweight='bold',
-                     bbox=dict(boxstyle='round,pad=0.15', facecolor='#333', alpha=0.7))
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='#222', alpha=0.85))
 
     # Colorbar: thin, inside the axes area using inset_axes
     from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -171,8 +178,8 @@ def fig_interpretability():
     ax_motif.set_xlabel('Pearson $r$ vs JASPAR PWM')
     ax_motif.set_xlim(0, 1.0)
     ax_motif.set_title('B. Gradient Motif Recovery', fontweight='bold', loc='left', fontsize=8)
-    ax_motif.axvline(x=0.5, color='gray', linestyle='--', alpha=0.5, linewidth=0.7)
-    ax_motif.text(0.52, 6.7, 'mean=0.55', fontsize=6, color='gray')
+    ax_motif.axvline(x=0.55, color='#333', linestyle='--', alpha=0.6, linewidth=0.9)
+    ax_motif.text(0.56, 6.5, 'mean', fontsize=7.5, color='#333', fontweight='bold', va='center')
     ax_motif.invert_yaxis()
     sns.despine(ax=ax_motif)
 
@@ -189,8 +196,8 @@ def fig_interpretability():
     ax_tf.set_yticklabels(tfs_class, fontweight='bold', fontsize=7)
     ax_tf.set_xlabel('TF Accuracy (%)')
     ax_tf.set_xlim(0, 105)
-    ax_tf.axvline(x=14.3, color='gray', linestyle=':', alpha=0.5, linewidth=0.7)
-    ax_tf.text(16, 6.5, 'chance', fontsize=5.5, color='gray')
+    ax_tf.axvline(x=14.3, color='#333', linestyle=':', alpha=0.6, linewidth=0.9)
+    ax_tf.text(16, 6.5, 'chance', fontsize=7.5, color='#333', fontweight='bold', va='center')
     ax_tf.set_title('C. TF Classification', fontweight='bold', loc='left', fontsize=8)
     ax_tf.invert_yaxis()
     sns.despine(ax=ax_tf)
