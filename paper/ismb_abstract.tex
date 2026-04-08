@@ -55,7 +55,7 @@ BEACON achieves mean profile Pearson $r=0.901$ across 7 TFs, surpassing BPNet ($
 
 \begin{figure}[h!]
 \centering
-\includegraphics[width=\textwidth,height=2.1in,keepaspectratio]{fig3_interpretability.pdf}
+\includegraphics[width=\textwidth]{fig3_interpretability.pdf}
 \caption{\textbf{Interpretable binding event decomposition.}
 \textbf{(A)}~Slot attention maps for an example locus containing 5 binding sites: each slot focuses sharply on a single binding event, with occupancy scores ($occ$) reflecting binding confidence. Slots self-organize to cover distinct genomic positions without supervision.
 \textbf{(B)}~Gradient-derived per-slot motifs correlate with canonical JASPAR position weight matrices (5/7 TFs achieve $r{>}0.50$), confirming that slots learn biologically meaningful sequence features. CTCF ($r=0.78$) and TAL1 ($r=0.76$) show the strongest recovery.
@@ -63,9 +63,7 @@ BEACON achieves mean profile Pearson $r=0.901$ across 7 TFs, surpassing BPNet ($
 \label{fig:interp}
 \end{figure}
 
-Crucially, BEACON's per-slot outputs directly enumerate binding events without post-hoc analysis (Fig.~\ref{fig:interp}A): each active slot reports \emph{where} a TF binds, \emph{which} TF it is, and \emph{how strongly}, with slot attention maps showing sharp, non-overlapping focus on individual binding sites. Slot specialization emerges naturally during training---individual slots become selective for specific TFs (e.g., Slot~3 activates for 71\% SPI1, Slot~6 for 80\% CEBPB), without any explicit assignment. Gradient-derived per-slot motifs recover canonical JASPAR PWMs (mean Pearson $r=0.55$; CTCF $r=0.78$, TAL1 $r=0.76$; Fig.~\ref{fig:interp}B), confirming that slots learn biologically meaningful sequence features. The helical positional encoding captures cooperative binding geometry: known co-regulators are enriched in co-binding predictions (GATA1--TAL1: 1.70$\times$, TAL1--CEBPB: 1.69$\times$), consistent with erythroid regulatory networks.
-
-Ablations confirm the importance of each architectural choice: removing Hungarian matching drops site F1 from 0.98 to 0.81 (slots cannot learn consistent assignment without it), and removing slot diversity regularization causes single-slot dominance (F1 drops to 0.72, with only 1.12 active slots per sequence vs.\ 1.94 in the full model). Cross-cell-type transfer from K562 to HepG2 retains 93\% of profile accuracy ($r=0.84$), 87\% of TF classification accuracy (65.7\%), and 87\% of site detection F1, demonstrating that BEACON learns generalizable TF binding representations rather than cell-type-specific artifacts.
+Slot specialization emerges naturally: individual slots become selective for specific TFs (e.g., Slot~3: 71\% SPI1, Slot~6: 80\% CEBPB) without explicit assignment, and gradient-derived motifs recover canonical JASPAR PWMs (Fig.~\ref{fig:interp}B). The helical encoding captures cooperative geometry, with known co-regulators enriched in co-binding predictions (GATA1--TAL1: 1.70$\times$, TAL1--CEBPB: 1.69$\times$). Ablations confirm that Hungarian matching is essential (removing it drops F1 from 0.98 to 0.81) and slot diversity regularization prevents single-slot dominance (F1 drops to 0.72 without it). Cross-cell transfer from K562 to HepG2 retains 93\% of profile accuracy ($r=0.84$) and 87\% of site detection F1.
 
 \section*{Conclusions}
 

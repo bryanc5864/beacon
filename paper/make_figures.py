@@ -48,8 +48,9 @@ os.makedirs(OUT, exist_ok=True)
 # FIGURE 2: BEACON vs BPNet per-TF profile Pearson + speed
 # ============================================================
 def fig_bpnet_comparison():
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.5, 2.2),
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.3, 2.2),
                                     gridspec_kw={'width_ratios': [3, 1.2]})
+    fig.subplots_adjust(left=0.07, right=0.97, top=0.90, bottom=0.15, wspace=0.35)
 
     # Panel A: Per-TF profile Pearson
     tfs = ['CTCF', 'GATA1', 'TAL1', 'MYC', 'MAX', 'SPI1', 'CEBPB']
@@ -76,8 +77,8 @@ def fig_bpnet_comparison():
     ax1.axhline(y=np.mean(beacon_r), color=BEACON_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     ax1.axhline(y=np.mean(bpnet_r), color=BPNET_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     # Mean labels
-    ax1.text(6.6, np.mean(beacon_r), f'$\\bar{{r}}$={np.mean(beacon_r):.3f}', fontsize=8, color=BEACON_COLOR, va='center', fontweight='bold')
-    ax1.text(6.6, np.mean(bpnet_r), f'$\\bar{{r}}$={np.mean(bpnet_r):.3f}', fontsize=8, color='#666666', va='center', fontweight='bold')
+    ax1.text(6.3, np.mean(beacon_r), f'$\\bar{{r}}$={np.mean(beacon_r):.3f}', fontsize=8, color=BEACON_COLOR, va='center', fontweight='bold')
+    ax1.text(6.3, np.mean(bpnet_r), f'$\\bar{{r}}$={np.mean(bpnet_r):.3f}', fontsize=8, color='#666666', va='center', fontweight='bold')
     sns.despine(ax=ax1)
 
     # Panel B: Speed comparison
@@ -96,9 +97,8 @@ def fig_bpnet_comparison():
                  xytext=(0.06, -0.15), arrowprops=dict(arrowstyle='->', color=BEACON_COLOR, lw=1.0))
     sns.despine(ax=ax2)
 
-    plt.tight_layout(w_pad=1.5)
-    fig.savefig(f'{OUT}/fig2_bpnet_comparison.pdf')
-    fig.savefig(f'{OUT}/fig2_bpnet_comparison.png', dpi=300)
+    fig.savefig(f'{OUT}/fig2_bpnet_comparison.pdf', bbox_inches=None, pad_inches=0)
+    fig.savefig(f'{OUT}/fig2_bpnet_comparison.png', dpi=300, bbox_inches=None, pad_inches=0)
     plt.close()
     print("Fig 2 done: BPNet comparison")
 
@@ -107,9 +107,16 @@ def fig_bpnet_comparison():
 # FIGURE 3: Interpretability — attention heatmap + motif logos
 # ============================================================
 def fig_interpretability():
-    fig = plt.figure(figsize=(7.5, 3.2))
-    gs = gridspec.GridSpec(2, 3, figure=fig, height_ratios=[1.2, 1],
-                           hspace=0.7, wspace=0.4)
+    # Use exact text width: 8.5in - 2*0.6in = 7.3in
+    fig = plt.figure(figsize=(7.3, 3.4))
+
+    # Use subplots_adjust for precise control — no auto-cropping
+    # Top row: attention heatmap spanning full width
+    # Bottom row: motif recovery (left 60%) + TF classification (right 40%)
+    gs = gridspec.GridSpec(2, 2, figure=fig, height_ratios=[1.2, 1],
+                           width_ratios=[1.5, 1],
+                           left=0.08, right=0.98, top=0.93, bottom=0.08,
+                           hspace=0.55, wspace=0.35)
 
     # Panel A: Simulated slot attention heatmap
     ax_attn = fig.add_subplot(gs[0, :])
@@ -120,39 +127,38 @@ def fig_interpretability():
 
     # Create realistic attention patterns: each slot focuses on one position
     attn = np.random.exponential(0.002, (K, L))
-    # Slot 0: CTCF at pos ~50
     attn[0, 45:55] = np.exp(-0.5 * ((np.arange(45, 55) - 50) / 2) ** 2) * 0.8
-    # Slot 1: GATA1 at pos ~90
     attn[1, 85:95] = np.exp(-0.5 * ((np.arange(85, 95) - 90) / 2) ** 2) * 0.7
-    # Slot 2: SPI1 at pos ~130
     attn[2, 125:135] = np.exp(-0.5 * ((np.arange(125, 135) - 130) / 2) ** 2) * 0.75
-    # Slot 3: CEBPB at pos ~160
     attn[3, 155:165] = np.exp(-0.5 * ((np.arange(155, 165) - 160) / 2) ** 2) * 0.65
-    # Slot 4: MAX at pos ~25
     attn[4, 20:30] = np.exp(-0.5 * ((np.arange(20, 30) - 25) / 2) ** 2) * 0.6
-
-    # Normalize each slot
     attn = attn / attn.sum(axis=1, keepdims=True)
 
     im = ax_attn.imshow(attn, aspect='auto', cmap='Blues', interpolation='bilinear')
     ax_attn.set_yticks(range(K))
     ax_attn.set_yticklabels(['Slot 0\n(CTCF)', 'Slot 1\n(GATA1)', 'Slot 2\n(SPI1)',
-                              'Slot 3\n(CEBPB)', 'Slot 4\n(MAX)'], fontsize=6)
+                              'Slot 3\n(CEBPB)', 'Slot 4\n(MAX)'], fontsize=6.5)
     ax_attn.set_xlabel('Genomic position (×10 bp)')
     ax_attn.set_title('A. Slot Attention Map — Each Slot Focuses on One Binding Site',
                        fontweight='bold', loc='left', fontsize=8)
 
-    # Add occupancy annotations
+    # Occupancy annotations inside the plot area (right-aligned)
     occs = [0.96, 0.84, 0.91, 0.78, 0.72]
     for i, occ in enumerate(occs):
-        ax_attn.text(L + 2, i, f'occ={occ:.2f}', fontsize=5.5, va='center', color='#333')
+        ax_attn.text(L - 3, i, f'occ={occ:.2f}', fontsize=6, va='center', ha='right',
+                     color='white', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.15', facecolor='#333', alpha=0.7))
 
-    cbar = plt.colorbar(im, ax=ax_attn, shrink=0.7, pad=0.12, aspect=15)
-    cbar.set_label('Attention weight', fontsize=6)
+    # Colorbar: thin, inside the axes area using inset_axes
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+    cax = inset_axes(ax_attn, width="1.5%", height="70%", loc='center right',
+                     bbox_to_anchor=(0.03, 0, 1, 1), bbox_transform=ax_attn.transAxes)
+    cbar = plt.colorbar(im, cax=cax)
+    cbar.set_label('Attn weight', fontsize=5.5)
     cbar.ax.tick_params(labelsize=5)
 
     # Panel B: Per-TF gradient motif correlation with JASPAR
-    ax_motif = fig.add_subplot(gs[1, 0:2])
+    ax_motif = fig.add_subplot(gs[1, 0])
 
     tfs_motif = ['CTCF', 'TAL1', 'CEBPB', 'SPI1', 'MYC', 'GATA1', 'MAX']
     jaspar_r = [0.775, 0.758, 0.506, 0.493, 0.467, 0.461, 0.404]
@@ -166,12 +172,12 @@ def fig_interpretability():
     ax_motif.set_xlim(0, 1.0)
     ax_motif.set_title('B. Gradient Motif Recovery', fontweight='bold', loc='left', fontsize=8)
     ax_motif.axvline(x=0.5, color='gray', linestyle='--', alpha=0.5, linewidth=0.7)
-    ax_motif.text(0.52, 6.7, 'mean=0.55', fontsize=5.5, color='gray')
+    ax_motif.text(0.52, 6.7, 'mean=0.55', fontsize=6, color='gray')
     ax_motif.invert_yaxis()
     sns.despine(ax=ax_motif)
 
     # Panel C: Per-TF classification accuracy (Hungarian-matched)
-    ax_tf = fig.add_subplot(gs[1, 2])
+    ax_tf = fig.add_subplot(gs[1, 1])
 
     tfs_class = ['SPI1', 'CEBPB', 'CTCF', 'GATA1', 'MAX', 'TAL1', 'MYC']
     tf_acc = [91.2, 93.0, 87.1, 71.3, 70.8, 43.9, 15.4]
@@ -184,13 +190,14 @@ def fig_interpretability():
     ax_tf.set_xlabel('TF Accuracy (%)')
     ax_tf.set_xlim(0, 105)
     ax_tf.axvline(x=14.3, color='gray', linestyle=':', alpha=0.5, linewidth=0.7)
-    ax_tf.text(16, 6.5, 'chance', fontsize=5, color='gray')
+    ax_tf.text(16, 6.5, 'chance', fontsize=5.5, color='gray')
     ax_tf.set_title('C. TF Classification', fontweight='bold', loc='left', fontsize=8)
     ax_tf.invert_yaxis()
     sns.despine(ax=ax_tf)
 
-    fig.savefig(f'{OUT}/fig3_interpretability.pdf')
-    fig.savefig(f'{OUT}/fig3_interpretability.png', dpi=300)
+    # Save WITHOUT bbox_inches='tight' to preserve exact canvas size
+    fig.savefig(f'{OUT}/fig3_interpretability.pdf', bbox_inches=None, pad_inches=0)
+    fig.savefig(f'{OUT}/fig3_interpretability.png', dpi=300, bbox_inches=None, pad_inches=0)
     plt.close()
     print("Fig 3 done: Interpretability")
 
