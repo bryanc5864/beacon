@@ -27,17 +27,17 @@ plt.rcParams.update({
     'ps.fonttype': 42,
 })
 
-# Color palette
-BEACON_COLOR = '#2166AC'  # blue
-BPNET_COLOR = '#B2182B'   # red
+# Color palette — unified blue
+BEACON_COLOR = '#08519C'  # dark blue
+BPNET_COLOR = '#BDBDBD'   # neutral gray
 TF_COLORS = {
-    'CTCF': '#E41A1C',
-    'GATA1': '#377EB8',
-    'TAL1': '#4DAF4A',
-    'MYC': '#984EA3',
-    'MAX': '#FF7F00',
-    'SPI1': '#A65628',
-    'CEBPB': '#F781BF',
+    'CTCF': '#08306B',
+    'GATA1': '#08519C',
+    'TAL1': '#2171B5',
+    'MYC': '#4292C6',
+    'MAX': '#6BAED6',
+    'SPI1': '#9ECAE1',
+    'CEBPB': '#C6DBEF',
 }
 
 OUT = 'C:/Users/zhaoz/beacon-build/paper/figures'
@@ -48,7 +48,7 @@ os.makedirs(OUT, exist_ok=True)
 # FIGURE 2: BEACON vs BPNet per-TF profile Pearson + speed
 # ============================================================
 def fig_bpnet_comparison():
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6.5, 2.2),
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.5, 2.2),
                                     gridspec_kw={'width_ratios': [3, 1.2]})
 
     # Panel A: Per-TF profile Pearson
@@ -65,7 +65,7 @@ def fig_bpnet_comparison():
     for i, (b, bp) in enumerate(zip(beacon_r, bpnet_r)):
         delta = b - bp
         ax1.annotate(f'+{delta:.2f}', xy=(x[i], max(b, bp) + 0.008),
-                     fontsize=5.5, ha='center', va='bottom', color='#333333', fontweight='bold')
+                     fontsize=8, ha='center', va='bottom', color='#333333', fontweight='bold')
 
     ax1.set_xticks(x)
     ax1.set_xticklabels(tfs, fontweight='bold')
@@ -76,8 +76,8 @@ def fig_bpnet_comparison():
     ax1.axhline(y=np.mean(beacon_r), color=BEACON_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     ax1.axhline(y=np.mean(bpnet_r), color=BPNET_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     # Mean labels
-    ax1.text(6.6, np.mean(beacon_r), f'$\\bar{{r}}$={np.mean(beacon_r):.3f}', fontsize=6, color=BEACON_COLOR, va='center')
-    ax1.text(6.6, np.mean(bpnet_r), f'$\\bar{{r}}$={np.mean(bpnet_r):.3f}', fontsize=6, color=BPNET_COLOR, va='center')
+    ax1.text(6.6, np.mean(beacon_r), f'$\\bar{{r}}$={np.mean(beacon_r):.3f}', fontsize=8, color=BEACON_COLOR, va='center', fontweight='bold')
+    ax1.text(6.6, np.mean(bpnet_r), f'$\\bar{{r}}$={np.mean(bpnet_r):.3f}', fontsize=8, color='#666666', va='center', fontweight='bold')
     sns.despine(ax=ax1)
 
     # Panel B: Speed comparison
@@ -91,9 +91,9 @@ def fig_bpnet_comparison():
     ax2.set_xlim(0.005, 20)
     ax2.set_title('B. Interpretation Speed', fontweight='bold', loc='left')
     # Speedup annotation
-    ax2.annotate('419× faster', xy=(0.020, 0), fontsize=7, fontweight='bold',
+    ax2.annotate('419× faster', xy=(0.020, 0), fontsize=9, fontweight='bold',
                  color=BEACON_COLOR, va='center', ha='left',
-                 xytext=(0.06, -0.15), arrowprops=dict(arrowstyle='->', color=BEACON_COLOR, lw=0.8))
+                 xytext=(0.06, -0.15), arrowprops=dict(arrowstyle='->', color=BEACON_COLOR, lw=1.0))
     sns.despine(ax=ax2)
 
     plt.tight_layout(w_pad=1.5)
@@ -107,7 +107,7 @@ def fig_bpnet_comparison():
 # FIGURE 3: Interpretability — attention heatmap + motif logos
 # ============================================================
 def fig_interpretability():
-    fig = plt.figure(figsize=(6.5, 3.2))
+    fig = plt.figure(figsize=(7.5, 3.2))
     gs = gridspec.GridSpec(2, 3, figure=fig, height_ratios=[1.2, 1],
                            hspace=0.7, wspace=0.4)
 
@@ -134,7 +134,7 @@ def fig_interpretability():
     # Normalize each slot
     attn = attn / attn.sum(axis=1, keepdims=True)
 
-    im = ax_attn.imshow(attn, aspect='auto', cmap='YlOrRd', interpolation='bilinear')
+    im = ax_attn.imshow(attn, aspect='auto', cmap='Blues', interpolation='bilinear')
     ax_attn.set_yticks(range(K))
     ax_attn.set_yticklabels(['Slot 0\n(CTCF)', 'Slot 1\n(GATA1)', 'Slot 2\n(SPI1)',
                               'Slot 3\n(CEBPB)', 'Slot 4\n(MAX)'], fontsize=6)
