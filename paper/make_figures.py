@@ -77,12 +77,9 @@ def fig_bpnet_comparison():
     ax1.axhline(y=np.mean(beacon_r), color=BEACON_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     ax1.axhline(y=np.mean(bpnet_r), color=BPNET_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     # Mean labels
-    # Mean r labels in upper-right, stacked vertically with spacing
-    ax1.text(0.97, 0.52, f'BEACON $\\bar{{r}}$={np.mean(beacon_r):.3f}', fontsize=8,
-             color=BEACON_COLOR, fontweight='bold', ha='right', va='top',
-             transform=ax1.transAxes)
-    ax1.text(0.97, 0.40, f'BPNet  $\\bar{{r}}$={np.mean(bpnet_r):.3f}', fontsize=8,
-             color='#999999', fontweight='bold', ha='right', va='top',
+    # Mean r labels top-right, just below title
+    ax1.text(0.99, 0.98, f'BEACON $\\bar{{r}}$={np.mean(beacon_r):.3f}   |   BPNet $\\bar{{r}}$={np.mean(bpnet_r):.3f}',
+             fontsize=7.5, color='#444', fontweight='bold', ha='right', va='top',
              transform=ax1.transAxes)
     sns.despine(ax=ax1)
 
