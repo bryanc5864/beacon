@@ -178,9 +178,7 @@ def fig_interpretability():
     ax_motif.set_xlabel('Pearson $r$ vs JASPAR PWM')
     ax_motif.set_xlim(0, 1.0)
     ax_motif.set_title('B. Gradient Motif Recovery', fontweight='bold', loc='left', fontsize=8)
-    ax_motif.axvline(x=0.55, color='#555', linestyle='--', alpha=0.7, linewidth=0.9)
-    ax_motif.text(0.57, 0.2, 'mean\n$r$=0.55', fontsize=6.5, color='#444',
-                  fontweight='bold', ha='left', va='top')
+    ax_motif.axvline(x=0.55, color='#555', linestyle='--', alpha=0.5, linewidth=0.8)
     ax_motif.invert_yaxis()
     sns.despine(ax=ax_motif)
 
@@ -197,9 +195,7 @@ def fig_interpretability():
     ax_tf.set_yticklabels(tfs_class, fontweight='bold', fontsize=7)
     ax_tf.set_xlabel('TF Accuracy (%)')
     ax_tf.set_xlim(0, 105)
-    ax_tf.axvline(x=14.3, color='#555', linestyle=':', alpha=0.7, linewidth=0.9)
-    ax_tf.text(16, 0.2, 'chance\n(14.3%)', fontsize=6.5, color='#444',
-               fontweight='bold', ha='left', va='top')
+    ax_tf.axvline(x=14.3, color='#555', linestyle=':', alpha=0.5, linewidth=0.8)
     ax_tf.set_title('C. TF Classification', fontweight='bold', loc='left', fontsize=8)
     ax_tf.invert_yaxis()
     sns.despine(ax=ax_tf)
