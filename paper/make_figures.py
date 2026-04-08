@@ -73,16 +73,17 @@ def fig_bpnet_comparison():
     ax1.set_ylabel('Profile Pearson $r$')
     ax1.set_ylim(0.55, 1.02)
     ax1.set_title('A. Per-TF Profile Prediction', fontweight='bold', loc='left')
-    ax1.legend(loc='lower left', framealpha=0.9, edgecolor='gray')
+    ax1.legend(loc='lower left', framealpha=0.9, edgecolor='lightgray')
     ax1.axhline(y=np.mean(beacon_r), color=BEACON_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     ax1.axhline(y=np.mean(bpnet_r), color=BPNET_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     # Mean labels
-    ax1.text(5.8, np.mean(beacon_r) + 0.015, f'$\\bar{{r}}$={np.mean(beacon_r):.3f}', fontsize=8.5,
-             color=BEACON_COLOR, va='bottom', fontweight='bold',
-             bbox=dict(boxstyle='round,pad=0.15', facecolor='white', edgecolor='none', alpha=0.85))
-    ax1.text(5.8, np.mean(bpnet_r) - 0.015, f'$\\bar{{r}}$={np.mean(bpnet_r):.3f}', fontsize=8.5,
-             color='#555555', va='top', fontweight='bold',
-             bbox=dict(boxstyle='round,pad=0.15', facecolor='white', edgecolor='none', alpha=0.85))
+    # Mean r labels in upper-right, stacked vertically with spacing
+    ax1.text(0.97, 0.52, f'BEACON $\\bar{{r}}$={np.mean(beacon_r):.3f}', fontsize=8,
+             color=BEACON_COLOR, fontweight='bold', ha='right', va='top',
+             transform=ax1.transAxes)
+    ax1.text(0.97, 0.40, f'BPNet  $\\bar{{r}}$={np.mean(bpnet_r):.3f}', fontsize=8,
+             color='#999999', fontweight='bold', ha='right', va='top',
+             transform=ax1.transAxes)
     sns.despine(ax=ax1)
 
     # Panel B: Speed comparison
