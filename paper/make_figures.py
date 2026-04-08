@@ -50,7 +50,7 @@ os.makedirs(OUT, exist_ok=True)
 def fig_bpnet_comparison():
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.3, 2.2),
                                     gridspec_kw={'width_ratios': [3, 1.2]})
-    fig.subplots_adjust(left=0.07, right=0.97, top=0.90, bottom=0.15, wspace=0.35)
+    fig.subplots_adjust(left=0.07, right=0.97, top=0.87, bottom=0.15, wspace=0.35)
 
     # Panel A: Per-TF profile Pearson
     tfs = ['CTCF', 'GATA1', 'TAL1', 'MYC', 'MAX', 'SPI1', 'CEBPB']
@@ -77,10 +77,9 @@ def fig_bpnet_comparison():
     ax1.axhline(y=np.mean(beacon_r), color=BEACON_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     ax1.axhline(y=np.mean(bpnet_r), color=BPNET_COLOR, linestyle='--', alpha=0.4, linewidth=0.8)
     # Mean labels
-    # Mean r labels top-right, just below title
-    ax1.text(0.99, 0.98, f'BEACON $\\bar{{r}}$={np.mean(beacon_r):.3f}   |   BPNet $\\bar{{r}}$={np.mean(bpnet_r):.3f}',
-             fontsize=7.5, color='#444', fontweight='bold', ha='right', va='top',
-             transform=ax1.transAxes)
+    # Mean r labels above the axes, in the figure whitespace
+    fig.text(0.52, 0.92, f'BEACON $\\bar{{r}}$={np.mean(beacon_r):.3f}   |   BPNet $\\bar{{r}}$={np.mean(bpnet_r):.3f}',
+             fontsize=7.5, color='#444', fontweight='bold', ha='center', va='bottom')
     sns.despine(ax=ax1)
 
     # Panel B: Speed comparison
