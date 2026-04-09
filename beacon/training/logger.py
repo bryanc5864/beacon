@@ -19,11 +19,18 @@ from datetime import datetime
 from typing import Dict, Optional, Any
 import torch
 
-try:
-    from torch.utils.tensorboard import SummaryWriter
-    HAS_TENSORBOARD = True
-except ImportError:
-    HAS_TENSORBOARD = False
+HAS_TENSORBOARD = None  # lazy-checked on first use
+
+
+def _check_tensorboard():
+    global HAS_TENSORBOARD
+    if HAS_TENSORBOARD is None:
+        try:
+            from torch.utils.tensorboard import SummaryWriter  # noqa: F401
+            HAS_TENSORBOARD = True
+        except ImportError:
+            HAS_TENSORBOARD = False
+    return HAS_TENSORBOARD
 
 
 class BEACONLogger:
@@ -59,9 +66,10 @@ class BEACONLogger:
         # Setup console and file logging
         self._setup_logging(log_level)
 
-        # Setup TensorBoard
+        # Setup TensorBoard (lazy import to avoid TF poisoning CUDA)
         self.writer = None
-        if use_tensorboard and HAS_TENSORBOARD:
+        if use_tensorboard and _check_tensorboard():
+            from torch.utils.tensorboard import SummaryWriter
             self.writer = SummaryWriter(log_dir=str(self.log_dir / "tensorboard"))
 
         # Metric history
