@@ -1,0 +1,124 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{locatello2020slotattention}
+\citation{avsec2021bpnet}
+\citation{shrikumar2018modisco}
+\citation{lundberg2017unified}
+\citation{locatello2020slotattention}
+\citation{carion2020detr}
+\citation{kim2007helical}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\citation{avsec2021bpnet}
+\citation{pampari2024chrombpnet}
+\citation{avsec2021enformer}
+\citation{linder2025borzoi}
+\citation{shrikumar2017deeplift,lundberg2017unified}
+\citation{shrikumar2018modisco}
+\citation{sundararajan2017integrated}
+\citation{locatello2020slotattention}
+\citation{carion2020detr}
+\citation{kipf2022savi}
+\citation{kelley2016basset}
+\citation{ullah2020selfattention}
+\citation{stewart2016endtoend,carion2020detr}
+\@LN@col{2}
+\@writefile{toc}{\contentsline {paragraph}{Contributions.}{2}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related work}{2}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Sequence-to-profile models.}{2}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Post-hoc motif discovery.}{2}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Object-centric representation learning.}{2}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Interpretable genomic models and set prediction.}{2}{section*.5}\protected@file@percent }
+\citation{zhang2008macs}
+\citation{avsec2021bpnet}
+\@LN@col{2}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Method}{3}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Problem setup}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Architecture}{3}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Backbone.}{3}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Helical positional encoding.}{3}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Slot attention.}{3}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Why competitive slot attention fails on multi-event DNA (and our fix).}{3}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Heads.}{3}{section*.10}\protected@file@percent }
+\citation{encode2012}
+\citation{rauluseviciute2024jaspar}
+\citation{pampari2024chrombpnet}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Predictive performance on K562 7-TF panel (held-out chromosomes 20--22, X). Profile $r$ is mean per-window Pearson correlation; site $F_1$ uses a $\pm 50$\,bp tolerance and $0.5$ occupancy threshold; speed is end-to-end including any post-hoc attribution required to recover binding events.}}{4}{table.1}\protected@file@percent }
+\newlabel{tab:main}{{1}{4}{Predictive performance on K562 7-TF panel (held-out chromosomes 20--22, X). Profile $r$ is mean per-window Pearson correlation; site $F_1$ uses a $\pm 50$\,bp tolerance and $0.5$ occupancy threshold; speed is end-to-end including any post-hoc attribution required to recover binding events}{table.1}{}}
+\@LN@col{2}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Training objective}{4}{subsection.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Inference and complexity}{4}{subsection.3.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Experiments}{4}{section.4}\protected@file@percent }
+\newlabel{sec:exp}{{4}{4}{Experiments}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Data}{4}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Baselines}{4}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Predictive accuracy}{4}{subsection.4.3}\protected@file@percent }
+\citation{locatello2020slotattention}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {BEACON vs.\ BPNet ensemble on $7$ TFs in K562.} \textbf  {(A)}~Per-TF profile Pearson $r$: a single $851$K-parameter BEACON model outperforms $7$ separately-trained BPNet models ($997$K total) on every TF, with the largest gains on bHLH factors (TAL1 $+0.18$, MYC $+0.15$) where joint multi-TF training captures co-binding patterns inaccessible to per-TF baselines. \textbf  {(B)}~Binding-event enumeration speed: BEACON emits structured events ($20$\,ms/seq) versus $8.4$\,s/seq for BPNet$+$TF-MoDISco---a $419\times $ end-to-end speedup that makes genome-wide binding catalogues feasible on commodity GPUs.}}{5}{figure.1}\protected@file@percent }
+\newlabel{fig:bpnet}{{1}{5}{\textbf {BEACON vs.\ BPNet ensemble on $7$ TFs in K562.} \textbf {(A)}~Per-TF profile Pearson $r$: a single $851$K-parameter BEACON model outperforms $7$ separately-trained BPNet models ($997$K total) on every TF, with the largest gains on bHLH factors (TAL1 $+0.18$, MYC $+0.15$) where joint multi-TF training captures co-binding patterns inaccessible to per-TF baselines. \textbf {(B)}~Binding-event enumeration speed: BEACON emits structured events ($20$\,ms/seq) versus $8.4$\,s/seq for BPNet$+$TF-MoDISco---a $419\times $ end-to-end speedup that makes genome-wide binding catalogues feasible on commodity GPUs}{figure.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Per-TF profile Pearson $r$ and BEACON's slot-classification accuracy on the K562 7-TF panel. The largest profile gains are on bHLH factors (TAL1 $+0.18$, MYC $+0.15$), which benefit from joint multi-TF training; per-TF accuracy is highest on TFs with distinctive motifs (SPI1, CEBPB, CTCF) and lowest within the bHLH family where motifs overlap.}}{5}{table.2}\protected@file@percent }
+\newlabel{tab:per-tf}{{2}{5}{Per-TF profile Pearson $r$ and BEACON's slot-classification accuracy on the K562 7-TF panel. The largest profile gains are on bHLH factors (TAL1 $+0.18$, MYC $+0.15$), which benefit from joint multi-TF training; per-TF accuracy is highest on TFs with distinctive motifs (SPI1, CEBPB, CTCF) and lowest within the bHLH family where motifs overlap}{table.2}{}}
+\@LN@col{2}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}End-to-end throughput}{5}{subsection.4.4}\protected@file@percent }
+\newlabel{sec:bench}{{4.4}{5}{End-to-end throughput}{subsection.4.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Slot specialization and motif recovery}{5}{subsection.4.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {Interpretable binding-event decomposition.} \textbf  {(A)}~Slot attention maps for a 5-site multi-TF locus: each active slot focuses sharply on one event with its own occupancy. \textbf  {(B)}~Gradient-derived per-slot motifs vs.\ canonical JASPAR PWMs (mean $r{=}0.55$, $5/7$ TFs exceed $0.50$). \textbf  {(C)}~Per-TF accuracy via Hungarian-matched slot assignment; bHLH factors are harder due to shared E-box binding preferences.}}{6}{figure.2}\protected@file@percent }
+\newlabel{fig:interp}{{2}{6}{\textbf {Interpretable binding-event decomposition.} \textbf {(A)}~Slot attention maps for a 5-site multi-TF locus: each active slot focuses sharply on one event with its own occupancy. \textbf {(B)}~Gradient-derived per-slot motifs vs.\ canonical JASPAR PWMs (mean $r{=}0.55$, $5/7$ TFs exceed $0.50$). \textbf {(C)}~Per-TF accuracy via Hungarian-matched slot assignment; bHLH factors are harder due to shared E-box binding preferences}{figure.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {Component ablations and multi-slot training.} \textbf  {(A)}~Removing Hungarian matching, switching from independent to competitive attention, dropping helical encoding, or removing the diversity loss each degrades site $F_1$ and/or active-slot count; ``Slots/3'' rescales mean active slots to $[0,1]$. \textbf  {(B)}~Training trajectory under independent attention: site $F_1$ rises to $0.98$ as active-slot count climbs from $1$ to $\sim $\,$3$; TF accuracy stabilizes at $\sim $\,$0.30$ on multi-TF windows.}}{6}{figure.3}\protected@file@percent }
+\newlabel{fig:ablate}{{3}{6}{\textbf {Component ablations and multi-slot training.} \textbf {(A)}~Removing Hungarian matching, switching from independent to competitive attention, dropping helical encoding, or removing the diversity loss each degrades site $F_1$ and/or active-slot count; ``Slots/3'' rescales mean active slots to $[0,1]$. \textbf {(B)}~Training trajectory under independent attention: site $F_1$ rises to $0.98$ as active-slot count climbs from $1$ to $\sim $\,$3$; TF accuracy stabilizes at $\sim $\,$0.30$ on multi-TF windows}{figure.3}{}}
+\@LN@col{2}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Multi-slot activation: competitive vs.\ independent attention}{6}{subsection.4.6}\protected@file@percent }
+\newlabel{sec:multi}{{4.6}{6}{Multi-slot activation: competitive vs.\ independent attention}{subsection.4.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.7}Cross-cell-type transfer and complexity scaling}{6}{subsection.4.7}\protected@file@percent }
+\citation{degner2012dsqtl}
+\citation{tehranchi2016pooled}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces \textbf  {Transfer and complexity.} \textbf  {(A)}~Train on K562, evaluate on HepG2: profile $r$ retention $93\%$ ($0.901\!\to \!0.840$), TF accuracy retention $93\%$, site detection retention $87\%$. \textbf  {(B)}~Performance vs.\ co-binding complexity: site detection drops gracefully from $\sim $\,$100\%$ ($1$ site) to $\sim $\,$71\%$ ($4{+}$ sites); TF accuracy from $\sim $\,$82\%$ to $\sim $\,$61\%$.}}{7}{figure.4}\protected@file@percent }
+\newlabel{fig:transfer}{{4}{7}{\textbf {Transfer and complexity.} \textbf {(A)}~Train on K562, evaluate on HepG2: profile $r$ retention $93\%$ ($0.901\!\to \!0.840$), TF accuracy retention $93\%$, site detection retention $87\%$. \textbf {(B)}~Performance vs.\ co-binding complexity: site detection drops gracefully from $\sim $\,$100\%$ ($1$ site) to $\sim $\,$71\%$ ($4{+}$ sites); TF accuracy from $\sim $\,$82\%$ to $\sim $\,$61\%$}{figure.4}{}}
+\@LN@col{2}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8}Variant effect interpretation}{7}{subsection.4.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.9}Cooperative binding on the helical face}{7}{subsection.4.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.10}Slot embeddings cluster by TF identity}{7}{subsection.4.10}\protected@file@percent }
+\citation{locatello2020slotattention}
+\bibstyle{plainnat}
+\bibcite{avsec2021bpnet}{{1}{2021a}{{Avsec et al.}}{{}}}
+\bibcite{avsec2021enformer}{{2}{2021b}{{Avsec et al.}}{{}}}
+\bibcite{bailey2009meme}{{3}{2009}{{Bailey et al.}}{{}}}
+\bibcite{carion2020detr}{{4}{2020}{{Carion et al.}}{{}}}
+\@LN@col{2}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Discussion}{8}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Independent vs.\ competitive attention.}{8}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Set-prediction supervision.}{8}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Helical inductive bias.}{8}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Limitations}{8}{section.6}\protected@file@percent }
+\newlabel{sec:limit}{{6}{8}{Limitations}{section.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Broader impact}{8}{section.7}\protected@file@percent }
+\bibcite{encode2012}{{5}{2012}{{ENCODE Project Consortium}}{{}}}
+\bibcite{kelley2016basset}{{6}{2016}{{Kelley et al.}}{{}}}
+\bibcite{kim2007helical}{{7}{2007}{{Kim et al.}}{{}}}
+\bibcite{kipf2022savi}{{8}{2022}{{Kipf et al.}}{{}}}
+\bibcite{locatello2020slotattention}{{9}{2020}{{Locatello et al.}}{{}}}
+\bibcite{lundberg2017unified}{{10}{2017}{{Lundberg \& Lee}}{{}}}
+\bibcite{pampari2024chrombpnet}{{11}{2024}{{Pampari et al.}}{{}}}
+\bibcite{rauluseviciute2024jaspar}{{12}{2024}{{Rauluseviciute et al.}}{{}}}
+\bibcite{shrikumar2017deeplift}{{13}{2017}{{Shrikumar et al.}}{{}}}
+\bibcite{shrikumar2018modisco}{{14}{2018}{{Shrikumar et al.}}{{}}}
+\bibcite{ullah2020selfattention}{{15}{2020}{{Ullah \& Ben-Hur}}{{}}}
+\bibcite{zhang2008macs}{{16}{2008}{{Zhang et al.}}{{}}}
+\bibcite{linder2025borzoi}{{17}{2025}{{Linder et al.}}{{}}}
+\bibcite{sundararajan2017integrated}{{18}{2017}{{Sundararajan et al.}}{{}}}
+\bibcite{stewart2016endtoend}{{19}{2016}{{Stewart et al.}}{{}}}
+\bibcite{degner2012dsqtl}{{20}{2012}{{Degner et al.}}{{}}}
+\bibcite{tehranchi2016pooled}{{21}{2016}{{Tehranchi et al.}}{{}}}
+\@LN@col{2}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Implementation details}{9}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Training.}{9}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Compute.}{9}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Data splits.}{9}{section*.17}\protected@file@percent }
+\@LN@col{2}
+\@writefile{toc}{\contentsline {paragraph}{Code.}{10}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B}Additional results}{10}{appendix.B}\protected@file@percent }
+\@LN@col{2}
+\@LN@col{2}
+\@LN@col{2}
+\gdef \@abspage@last{13}
