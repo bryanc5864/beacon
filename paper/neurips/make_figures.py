@@ -125,9 +125,9 @@ def fig_bpnet_comparison():
 # FIGURE 3: Interpretability — attention + motifs + TF accuracy
 # ============================================================
 def fig_interpretability():
-    fig = plt.figure(figsize=(6.5, 2.8))
+    fig = plt.figure(figsize=(6.5, 3.6))
     gs = gridspec.GridSpec(2, 3, figure=fig, height_ratios=[1.2, 1],
-                           hspace=0.45, wspace=0.35)
+                           hspace=0.95, wspace=0.4)
 
     # Panel A: Slot attention heatmap (blue colormap)
     ax_attn = fig.add_subplot(gs[0, :])
