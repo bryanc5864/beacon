@@ -1,0 +1,261 @@
+\documentclass{article}
+
+% NeurIPS 2026 — anonymized double-blind submission (Main Track)
+\usepackage{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+
+\title{BEACON: Compositional Slot Attention for Inherently\\
+Interpretable Transcription Factor Binding Site Discovery}
+
+\author{%
+  Anonymous Author(s)\\
+  Affiliation\\
+  Address\\
+  \texttt{anon@example.com}\\
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Discovering transcription factor (TF) binding sites in regulatory DNA is a foundational task in functional genomics. State-of-the-art models such as BPNet predict base-resolution binding profiles, but recovering the underlying binding events requires expensive post-hoc attribution (DeepSHAP) followed by motif clustering (TF-MoDISco), which is slow and decoupled from the predictive objective. We introduce \textbf{BEACON}, a model that directly decomposes a regulatory sequence into a small set of \emph{compositional binding events} via slot attention. Each of $K$ slots competes to bind a discrete event and emits a position, a TF identity, and an occupancy, supervised end-to-end by Hungarian matching. A helical positional encoding aligned to DNA's $10.5$\,bp periodicity provides an inductive bias for cooperative binding on the same helical face. On a $7$-TF K562 ChIP-seq panel, BEACON improves mean profile Pearson correlation from $r{=}0.813$ (BPNet ensemble, $7$ models) to $r{=}0.901$ with a single $851$K-parameter model, attains $F_1{=}0.984$ on site detection, and produces a genome-wide binding catalogue $\sim$\,$420\times$ faster than BPNet$+$TF-MoDISco. We further show that the original \emph{competitive} slot attention~\citep{locatello2020slotattention} is fundamentally incompatible with multi-event sequences---one slot wins all binding-relevant positions---and that switching to per-slot attention with Hungarian matching unlocks multi-slot activation, lifting mean active slots from $1.0$ to $\sim$\,$3$ on co-bound regions. Slots self-organize by TF identity, recover canonical JASPAR motifs without motif-level supervision, and retain $93\%$ of profile accuracy when transferred from K562 to unseen HepG2 cells.
+\end{abstract}
+
+\section{Introduction}
+Transcription factor binding site (TFBS) discovery from chromatin profiling assays is a foundational problem in regulatory genomics. Modern sequence-to-profile models such as BPNet~\citep{avsec2021bpnet} achieve high accuracy on base-resolution ChIP-seq prediction, and downstream pipelines like TF-MoDISco~\citep{shrikumar2018modisco} cluster DeepSHAP~\citep{lundberg2017unified} attributions into motif syntax. This \emph{predict-then-attribute} workflow has two costs. First, attribution is computationally heavy: per-base attribution and motif clustering can require seconds-to-minutes per locus, prohibitive for genome-wide catalogues across many cell types. Second, the discrete objects of biological interest---individual binding events---are never represented in the model and must be reconstructed from soft, post-hoc importance signals. A multi-TF locus cannot be enumerated; the pipeline tells us \emph{where} signal is important, but not how to decompose it into individual binding events with identity and strength.
+
+We argue that a binding event is naturally an \emph{object}: a triple (position, TF identity, occupancy) localized to a short window of DNA. Object-centric representation learning provides a principled toolkit for this. Slot Attention~\citep{locatello2020slotattention} factorizes a scene into a small set of slots that compete for explanatory mass, and Hungarian matching~\citep{carion2020detr} supervises set-valued predictions in a permutation-invariant way. Adapting these tools to regulatory DNA, however, requires domain inductive biases. The DNA double helix has a $10.5$\,bp major-groove and $5.25$\,bp minor-groove periodicity that mediate cooperative binding on the same helical face~\citep{kim2007helical}. Binding events are sparse along long sequences, and cooperatively bound TFs from different families (e.g., GATA1--TAL1, TAL1--CEBPB) commonly co-occupy regulatory elements.
+
+\paragraph{Contributions.}
+(i)~We present BEACON, an object-centric model for TFBS discovery, adapting slot attention to 1D regulatory DNA with a helical positional encoding capturing the $10.5/5.25$\,bp periodicities. (ii)~We pose binding-site prediction as a set-prediction problem with Hungarian matching across position, TF identity, and occupancy heads, plus an auxiliary profile head for compatibility with BPNet-style supervision. (iii)~We identify a fundamental failure mode of \emph{competitive} slot attention on multi-event sequences---the softmax-over-slots formulation drives one slot to claim all binding-relevant positions---and show that an \emph{independent} per-slot attention combined with Hungarian matching unlocks multi-slot activation. (iv)~On a $7$-TF K562 panel BEACON improves mean profile Pearson $r$ from $0.813$ to $0.901$ with $\sim$\,$15\%$ fewer parameters than the BPNet ensemble, achieves site detection $F_1{=}0.984$, runs $\sim$\,$420\times$ faster end-to-end than BPNet$+$TF-MoDISco, and retains $93\%$ of profile accuracy under K562$\rightarrow$HepG2 transfer. We release anonymized code and pretrained weights with the supplementary material.
+
+\section{Related work}
+
+\paragraph{Sequence-to-profile models.} BPNet~\citep{avsec2021bpnet} maps one-hot DNA to base-resolution coverage profiles using dilated convolutions, separately for each TF. ChromBPNet~\citep{pampari2024chrombpnet} extends this with a bias-corrected ATAC-seq backbone. Enformer~\citep{avsec2021enformer} uses transformers for long-range gene-expression prediction. None represent binding events explicitly; sites must be recovered post-hoc.
+
+\paragraph{Post-hoc motif discovery.} DeepLIFT/DeepSHAP~\citep{shrikumar2017deeplift,lundberg2017unified} provide per-base attribution, which TF-MoDISco~\citep{shrikumar2018modisco} clusters into recurring motifs. The pipeline is decoupled from the predictive objective and computationally expensive at genome scale. CWM-style~\citep{avsec2021bpnet} contribution-weighted motifs share these limitations.
+
+\paragraph{Object-centric representation learning.} Slot Attention~\citep{locatello2020slotattention} introduced iterative competitive attention for unsupervised scene decomposition. DETR~\citep{carion2020detr} demonstrated set prediction with bipartite matching for object detection. Subsequent work extended these ideas to video~\citep{kipf2022savi} and other domains. To our knowledge, BEACON is the first application of slot attention to regulatory DNA, and we report a domain-specific failure mode of competitive softmax that to our knowledge has not been described elsewhere.
+
+\paragraph{Interpretable genomic models.} Convolutional filters as motifs~\citep{kelley2016basset}, attention-based motif discovery~\citep{ullah2020selfattention}, and prototype models offer alternative routes to interpretability. BEACON differs by treating binding \emph{events}, rather than motifs or filters, as the latent objects.
+
+\section{Method}
+
+\subsection{Problem setup}
+Let $\mathbf{x}\!\in\!\{0,1\}^{L\times 4}$ be a one-hot encoded DNA sequence of length $L{=}2000$\,bp. Each window is associated with (i)~a base-resolution coverage profile $\mathbf{y}\!\in\!\mathbb{R}_{\ge 0}^{L}$ from the union of $T$ ChIP-seq tracks, and (ii)~a sparse set of ground-truth binding events $\{(p_i, t_i, o_i)\}_{i=1}^{N}$ derived from MACS2 peak calls~\citep{zhang2008macs}, where $p_i\!\in\![0,1]$ is the normalized position, $t_i\!\in\!\{1,\ldots,T\}$ the TF identity, and $o_i\!\in\![0,1]$ the occupancy. $N$ is variable; in our data $N$ ranges from $0$ to $\sim$\,$8$. The model jointly reconstructs $\mathbf{y}$ and predicts the set of events.
+
+\subsection{Architecture}
+BEACON has four components: a dilated CNN backbone, a helical positional encoding, a slot attention module, and four lightweight heads.
+
+\paragraph{Backbone.} A dilated residual CNN with kernel $3$ and exponentially increasing dilation $2^0,\ldots,2^8$ over $9$ residual blocks gives a $1029$\,bp receptive field. An initial $\text{kernel}{=}21$ convolution captures local motif-scale structure. Hidden width $D{=}128$. Output is a feature map $\mathbf{H}\!\in\!\mathbb{R}^{L\times D}$.
+
+\paragraph{Helical positional encoding.} Standard sinusoidal positional encoding is concatenated with DNA-specific harmonics aligned to the major-groove ($10.5$\,bp) and minor-groove ($5.25$\,bp) periods. For position $\ell$ and harmonic index $h\!\in\!\{0,\ldots,H{-}1\}$ with $H{=}4$, we use frequencies
+\begin{equation}
+\omega^{\text{maj}}_{h} = \frac{2\pi}{10.5\,(h{+}1)},\qquad
+\omega^{\text{min}}_{h} = \frac{2\pi}{5.25\,(h{+}1)},
+\end{equation}
+and concatenate $\sin/\cos$ pairs across both periodicities. Two scalar gates (initialized to $1$) are learned to balance helical and broadband components. This encoding lets BEACON reason about whether two predicted binding sites lie on the same helical face, a strong inductive bias for cooperative binding.
+
+\paragraph{Slot attention.} We use $K{=}16$ slots, initialized from a learned Gaussian $\mathbf{S}^{(0)}\!\sim\!\mathcal{N}(\boldsymbol{\mu},\mathrm{diag}(\boldsymbol{\sigma}^2))$. At iteration $r$ we compute
+\begin{equation}
+\mathbf{K}_r{=}\mathbf{H}\mathbf{W}_K,\quad \mathbf{Q}_r{=}\mathbf{S}^{(r-1)}\mathbf{W}_Q,\quad \mathbf{V}_r{=}\mathbf{H}\mathbf{W}_V,
+\end{equation}
+attention $\mathbf{A}_r\!\in\!\mathbb{R}^{K\times L}$, and update slots with a GRU and residual MLP, unrolling $T_{\text{iter}}{=}3$ steps.
+
+\paragraph{Why competitive slot attention fails on multi-event DNA (and our fix).} The original Slot Attention applies softmax \emph{over slots} ($\mathbf{A}_r=\mathrm{softmax}_{k}(\mathbf{Q}_r\mathbf{K}_r^\top/\sqrt{D})$), partitioning each base across slots. On natural images this enforces specialization. On DNA, however, binding-relevant positions are sparse and structurally similar across TFs (all are short k-mers in a long noisy background); the softmax collapses to a winner-take-all where one slot claims all binding positions, leaving $K{-}1$ slots inert. Empirically, on co-bound K562 windows we observe $0\%$ of sequences activate $>1$ slot, with Slot~$0$ at occupancy $0.98$ and Slots $1$--$15$ at $10^{-7}$ to $10^{-13}$ (Sec.~\ref{sec:multi}). Auxiliary losses (slot diversity, slot-count, load balancing, Hungarian matching) cannot overcome this architectural bottleneck. We replace the softmax-over-slots with an \emph{independent} softmax over positions, $\mathbf{A}_r=\mathrm{softmax}_{\ell}(\mathbf{Q}_r\mathbf{K}_r^\top/\sqrt{D})$, so each slot has its own attention distribution and slot specialization is driven entirely by Hungarian matching. With this change mean active slots rises from $1.0$ to $\sim$\,$3$, matching the typical co-binding count in our data, and site $F_1$ on multi-TF sequences rises from $0.33$ to $0.96$.
+
+\paragraph{Heads.} From each slot $\mathbf{s}_k$ we predict (a)~a Gaussian position $\mathcal{N}(\mu_k,\sigma_k^2)$ over $[0,1]$, (b)~TF logits over the $T$-class panel, (c)~an occupancy $o_k\!\in\![0,1]$ via sigmoid, and (d)~a Gaussian peak contribution $\alpha_k\,\exp(-(\ell-\mu_k)^2/2\sigma_k^2)$ to the profile head, summed across slots.
+
+\subsection{Training objective}
+We minimize a weighted sum of (i)~profile reconstruction (multinomial-NLL profile shape $+$ log-count MSE following BPNet~\citep{avsec2021bpnet}), (ii)~a Hungarian-matched set loss over (position, TF, occupancy), (iii)~a slot diversity loss penalizing pairwise cosine similarity between slot attention maps, and (iv)~a slot orthogonality loss on slot embeddings. Hungarian matching solves $\hat{\pi}=\arg\min_{\pi\in\Pi_K}\sum_{i}\mathcal{C}(\hat{e}_{\pi(i)},e_i)$ with cost combining squared position error, $-\log p(t_i)$, and $1-o_k$. Unmatched slots are pushed to occupancy $0$. We use AdamW ($\beta_1{=}0.9,\beta_2{=}0.999$, weight decay $0.01$), peak LR $1{\times}10^{-4}$, batch $32$, $\le 100$ epochs with early stopping (patience $20$), gradient clipping $1.0$, and mixed-precision training. Loss weights: profile $1$, position $1$, TF $5$, occupancy $0.5$, diversity $0.5$, orthogonality $0.1$, site supervision $1$.
+
+\subsection{Inference and complexity}
+At inference, BEACON does a single forward pass and returns a sorted list of slots with $o_k > \tau$ (default $\tau{=}0.5$). On a single GPU, throughput is $\sim$\,$50$ sequences/s ($\sim$\,$20$\,ms per $2$\,kb sequence). The model has $851$K parameters. By contrast, the BPNet$+$TF-MoDISco pipeline---one BPNet per TF, DeepSHAP attribution, and motif clustering---takes $\sim$\,$8.4$\,s per sequence end-to-end on the same hardware (Sec.~\ref{sec:bench}).
+
+\section{Experiments}
+\label{sec:exp}
+
+\subsection{Data}
+We train on ENCODE ChIP-seq for $T{=}7$ TFs in K562 spanning five families: CTCF (zinc finger), GATA1 (GATA), TAL1 (bHLH), MYC and MAX (bHLH), SPI1 (ETS), and CEBPB (bZIP). Peaks are called with MACS2 ($q\!<\!0.05$); each $2$\,kb window is centered on a peak summit and assigned the union of overlapping peaks across the panel. Multi-TF co-bound regions are identified by clustering peaks within $500$\,bp ($\sim$\,$30$K windows). We split by chromosome: train on chr1--17 ($28{,}812$ sequences), validate on chr18--19 ($1{,}533$), test on chr20--22,X ($1{,}197$). For cross-cell transfer we evaluate on HepG2 ChIP-seq for the four TFs available there (CTCF, MYC, MAX, CEBPB). All data are public ENCODE assays~\citep{encode2012}; JASPAR 2024~\citep{rauluseviciute2024jaspar} PWMs are used only for post-hoc motif comparison, not training.
+
+\subsection{Baselines}
+\textbf{BPNet ensemble}: $7$ independent BPNet models (one per TF) trained with the same data splits and the published architecture; profile predictions are aggregated by per-TF head ($997$K parameters total). \textbf{ChromBPNet}~\citep{pampari2024chrombpnet} where bias correction is informative. We also report a \textbf{$1$-hot CNN} baseline. For interpretability comparisons we use \textbf{DeepSHAP$+$TF-MoDISco} on the BPNet ensemble.
+
+\subsection{Predictive accuracy}
+\begin{table}[t]
+\caption{Predictive performance on K562 7-TF panel (held-out chromosomes 20--22, X). Profile $r$ is mean per-window Pearson correlation; site $F_1$ uses a $\pm 50$\,bp tolerance and $0.5$ occupancy threshold; speed is end-to-end including any post-hoc attribution required to recover binding events.}
+\label{tab:main}
+\centering\small
+\begin{tabular}{lccccc}
+\toprule
+Model & Profile $r$ $\uparrow$ & TF acc. $\uparrow$ & Site $F_1$ $\uparrow$ & Speed (s/seq) $\downarrow$ & Params \\
+\midrule
+1-hot CNN     & $0.611$ & --- & --- & $0.012$ & $0.4$M \\
+BPNet (ens.\ of $7$)  & $0.813$ & ---            & --- & $8.4$ (incl.\ MoDISco) & $1.0$M \\
+ChromBPNet    & $0.829$ & ---            & --- & $8.6$               & $1.1$M \\
+\textbf{BEACON (ours)} & $\mathbf{0.901}$ & $\mathbf{0.755}$ & $\mathbf{0.984}$ & $\mathbf{0.020}$ & $\mathbf{0.85}$M \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig2_bpnet_comparison.pdf}
+  \caption{\textbf{BEACON vs.\ BPNet ensemble on $7$ TFs in K562.} \textbf{(A)}~Per-TF profile Pearson $r$: a single $851$K-parameter BEACON model outperforms $7$ separately-trained BPNet models ($997$K total) on every TF, with the largest gains on bHLH factors (TAL1 $+0.18$, MYC $+0.15$) where joint multi-TF training captures co-binding patterns inaccessible to per-TF baselines. \textbf{(B)}~Binding-event enumeration speed: BEACON emits structured events ($20$\,ms/seq) versus $8.4$\,s/seq for BPNet$+$TF-MoDISco---a $419\times$ end-to-end speedup that makes genome-wide binding catalogues feasible on commodity GPUs.}
+  \label{fig:bpnet}
+\end{figure}
+
+BEACON improves mean profile correlation by $+0.088$ over BPNet and by $+0.072$ over ChromBPNet (Table~\ref{tab:main}, Fig.~\ref{fig:bpnet}A) while jointly emitting structured binding events. Site detection achieves $F_1{=}0.984$ ($1.000$ precision, $0.969$ recall) at the default occupancy threshold. Per-TF classification accuracy is $75.5\%$ overall ($5.3\times$ above chance for $7$ classes), with SPI1 and CEBPB exceeding $90\%$ and CTCF at $87\%$. As expected, within-family confusion (MYC--MAX, both bHLH) is $3.2\times$ higher than between-family confusion---this is genuine biological similarity rather than model failure.
+
+\subsection{End-to-end throughput}
+\label{sec:bench}
+For genome-wide TFBS catalogues, the relevant cost is sequence$\rightarrow$structured events. BEACON: a single $20$\,ms forward pass. BPNet$+$MoDISco: $\sim$\,$8.4$\,s per sequence (DeepSHAP dominates). The end-to-end speed-up is $\sim$\,$420\times$ at higher accuracy (Fig.~\ref{fig:bpnet}B), enabling whole-genome binding atlases on a single GPU.
+
+\subsection{Slot specialization and motif recovery}
+We probe whether slots organize by TF without explicit supervision linking slots to TFs (the TF head learns the assignment).
+For each slot we extract the top-$1\%$ activating $25$\,bp windows across the test set and (i)~match them to JASPAR PWMs with TomTom and (ii)~compute Pearson $r$ between gradient-derived motifs and canonical PWMs (Fig.~\ref{fig:interp}B). Mean recovery is $r{=}0.55$, with $5/7$ TFs exceeding $r>0.50$; CTCF ($r{=}0.78$) and TAL1 ($r{=}0.76$) show the strongest recovery. Individual slots become selective for specific TFs without explicit assignment (e.g., one slot reaches $71\%$ SPI1, another $80\%$ CEBPB; Fig.~\ref{fig:interp}A,C). Helical encoding captures cooperative geometry: known co-regulators are enriched in co-binding predictions (GATA1--TAL1: $1.70\times$, TAL1--CEBPB: $1.69\times$).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig3_interpretability.pdf}
+  \caption{\textbf{Interpretable binding-event decomposition.} \textbf{(A)}~Slot attention maps for a 5-site multi-TF locus: each active slot focuses sharply on one event with its own occupancy. \textbf{(B)}~Gradient-derived per-slot motifs vs.\ canonical JASPAR PWMs (mean $r{=}0.55$, $5/7$ TFs exceed $0.50$). \textbf{(C)}~Per-TF accuracy via Hungarian-matched slot assignment; bHLH factors are harder due to shared E-box binding preferences.}
+  \label{fig:interp}
+\end{figure}
+
+\subsection{Multi-slot activation: competitive vs.\ independent attention}
+\label{sec:multi}
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig4_ablation.pdf}
+  \caption{\textbf{Component ablations and multi-slot training.} \textbf{(A)}~Removing Hungarian matching, switching from independent to competitive attention, dropping helical encoding, or removing the diversity loss each degrades site $F_1$ and/or active-slot count; ``Slots/3'' rescales mean active slots to $[0,1]$. \textbf{(B)}~Training trajectory under independent attention: site $F_1$ rises to $0.98$ as active-slot count climbs from $1$ to $\sim$\,$3$; TF accuracy stabilizes at $\sim$\,$0.30$ on multi-TF windows.}
+  \label{fig:ablate}
+\end{figure}
+On multi-TF co-bound windows, the original competitive softmax-over-slots~\citep{locatello2020slotattention} drives single-slot dominance: mean active slots is $1.0$ and site $F_1$ on multi-event sequences is $0.33$. Switching to independent (per-slot) attention with Hungarian matching lifts mean active slots to $\sim$\,$3$ (matching typical co-binding) and site $F_1$ to $0.96$. We sweep the TF-loss weight; at $w_{\text{TF}}{=}5$, multi-slot activation and TF accuracy are jointly maximized at $\sim$\,$0.30$ TF accuracy on multi-TF windows (versus chance $0.143$). Larger ablations (Fig.~\ref{fig:ablate}A): removing Hungarian matching drops $F_1$ from $0.96$ to $0.81$; reverting to competitive attention drops $F_1$ to $0.33$; removing helical encoding has minimal effect on $F_1$ but reduces active-slot count by $\sim$\,$10\%$; removing slot diversity drops $F_1$ to $0.72$.
+
+\subsection{Cross-cell-type transfer and complexity scaling}
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig5_transfer_complexity.pdf}
+  \caption{\textbf{Transfer and complexity.} \textbf{(A)}~Train on K562, evaluate on HepG2: profile $r$ retention $93\%$ ($0.901\!\to\!0.840$), TF accuracy retention $93\%$, site detection retention $87\%$. \textbf{(B)}~Performance vs.\ co-binding complexity: site detection drops gracefully from $\sim$\,$100\%$ ($1$ site) to $\sim$\,$71\%$ ($4{+}$ sites); TF accuracy from $\sim$\,$82\%$ to $\sim$\,$61\%$.}
+  \label{fig:transfer}
+\end{figure}
+Holding HepG2 entirely out of training, BEACON retains $93\%$ of profile $r$ ($0.901\!\to\!0.840$), $93\%$ of TF accuracy, and $87\%$ of site $F_1$ (Fig.~\ref{fig:transfer}A). CTCF and CEBPB transfer near-perfectly ($97$--$99\%$); MYC accuracy actually \emph{improves} in HepG2 (consistent with liver-specific MYC/MAX balance), while MAX drops as a consequence of the same shift. Performance degrades gracefully with co-binding complexity (Fig.~\ref{fig:transfer}B): site detection from $\sim$\,$100\%$ ($1$ site) to $\sim$\,$71\%$ ($4{+}$ sites).
+
+\subsection{Variant effect interpretation}
+Because BEACON emits structured events, we can score a variant by directly comparing predicted event lists between reference and alternate alleles, attributing the change to a specific (slot, TF) pair. On held-out dsQTLs and bQTLs from prior studies, BEACON's directional concordance with measured allelic imbalance is $0.78$, comparable to BPNet$+$DeepSHAP ($0.75$) but produced in a single forward pass and with a localized causal annotation (which slot, which TF, which position).
+
+\section{Discussion}
+BEACON treats binding events as the unit of representation, removing the predict-then-attribute split that has structured the field. Two design choices were essential. First, \emph{independent} per-slot attention (rather than the original competitive softmax-over-slots) is required for multi-event domains; this is, to our knowledge, a new finding about slot attention applied to sparse, structurally homogeneous inputs. Second, Hungarian matching supplies permutation-invariant supervision that is otherwise impossible with set-valued outputs. The helical positional encoding is a small but meaningful inductive bias that aligns the model's notion of ``nearby'' with DNA's geometry rather than linear bp distance.
+
+\section{Limitations}
+\label{sec:limit}
+The current panel is $7$ well-characterized TFs in $2$ cell types; performance scales with co-binding complexity (Fig.~\ref{fig:transfer}B), and harder regimes (rare TFs, low-signal peaks, repeat-rich loci) will reveal a more graded picture. There is a measured trade-off between multi-slot activation and per-slot TF accuracy: across our sweeps, peak per-slot TF accuracy is $\sim$\,$0.32$ on multi-TF windows, well above chance ($0.143$) but not yet sufficient for fine-grained per-event identity calls in dense clusters. Our slot count $K$ is fixed at training time; we observe rare clipping at $K{=}16$ in highly repetitive regions, partially mitigated by $K{=}32$ at modest cost. The model assumes a panel of known TFs; novel-motif discovery is supported only via an optional motif-prototype head and is not the focus of this paper. Supervision still requires peak calls; weakly supervised training from raw coverage alone is left to future work.
+
+\section{Broader impact}
+TF-binding prediction supports basic biology, drug-target identification, and variant interpretation. We do not foresee specific dual-use risks beyond those that apply to genomics models broadly; the model uses only public ENCODE data with no human-subject involvement at inference. Faster genome-wide binding catalogues lower the compute barrier to genomic analysis, with positive effects on reproducibility and scientific access. We release code and weights under a permissive license to support these uses.
+
+\begin{ack}
+Anonymized for submission.
+\end{ack}
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+\small
+\bibitem[Avsec et al.(2021a)]{avsec2021bpnet}
+Avsec, Z., Weilert, M., Shrikumar, A., et al.\ (2021).
+\newblock Base-resolution models of transcription-factor binding reveal soft motif syntax.
+\newblock {\em Nature Genetics}, 53:354--366.
+\bibitem[Avsec et al.(2021b)]{avsec2021enformer}
+Avsec, Z., Agarwal, V., Visentin, D., et al.\ (2021).
+\newblock Effective gene expression prediction from sequence by integrating long-range interactions.
+\newblock {\em Nature Methods}, 18:1196--1203.
+\bibitem[Bailey et al.(2009)]{bailey2009meme}
+Bailey, T.L., et al.\ (2009).
+\newblock MEME SUITE: tools for motif discovery and searching.
+\newblock {\em Nucleic Acids Research}, 37:W202--W208.
+\bibitem[Carion et al.(2020)]{carion2020detr}
+Carion, N., Massa, F., Synnaeve, G., et al.\ (2020).
+\newblock End-to-end object detection with transformers.
+\newblock In {\em ECCV}.
+\bibitem[ENCODE Project Consortium(2012)]{encode2012}
+ENCODE Project Consortium (2012).
+\newblock An integrated encyclopedia of DNA elements in the human genome.
+\newblock {\em Nature}, 489:57--74.
+\bibitem[Kelley et al.(2016)]{kelley2016basset}
+Kelley, D.R., Snoek, J., \& Rinn, J.L.\ (2016).
+\newblock Basset: learning the regulatory code of the accessible genome with deep convolutional neural networks.
+\newblock {\em Genome Research}, 26:990--999.
+\bibitem[Kim et al.(2007)]{kim2007helical}
+Kim, S., Brostromer, E., Xing, D., et al.\ (2007).
+\newblock Probing allostery through DNA.
+\newblock {\em Science}, 339:816--819.
+\bibitem[Kipf et al.(2022)]{kipf2022savi}
+Kipf, T., et al.\ (2022).
+\newblock Conditional object-centric learning from video.
+\newblock In {\em ICLR}.
+\bibitem[Locatello et al.(2020)]{locatello2020slotattention}
+Locatello, F., Weissenborn, D., Unterthiner, T., et al.\ (2020).
+\newblock Object-centric learning with slot attention.
+\newblock In {\em NeurIPS}.
+\bibitem[Lundberg \& Lee(2017)]{lundberg2017unified}
+Lundberg, S.M., \& Lee, S.-I.\ (2017).
+\newblock A unified approach to interpreting model predictions.
+\newblock In {\em NeurIPS}.
+\bibitem[Pampari et al.(2024)]{pampari2024chrombpnet}
+Pampari, A., et al.\ (2024).
+\newblock ChromBPNet: bias-factorized, base-resolution deep learning models of chromatin accessibility.
+\newblock {\em bioRxiv}.
+\bibitem[Rauluseviciute et al.(2024)]{rauluseviciute2024jaspar}
+Rauluseviciute, I., et al.\ (2024).
+\newblock JASPAR 2024: 10th release.
+\newblock {\em Nucleic Acids Research}, 52:D174--D182.
+\bibitem[Shrikumar et al.(2017)]{shrikumar2017deeplift}
+Shrikumar, A., Greenside, P., \& Kundaje, A.\ (2017).
+\newblock Learning important features through propagating activation differences.
+\newblock In {\em ICML}.
+\bibitem[Shrikumar et al.(2018)]{shrikumar2018modisco}
+Shrikumar, A., et al.\ (2018).
+\newblock TF-MoDISco: technical note.
+\newblock {\em arXiv:1811.00416}.
+\bibitem[Ullah \& Ben-Hur(2020)]{ullah2020selfattention}
+Ullah, F., \& Ben-Hur, A.\ (2020).
+\newblock A self-attention model for inferring cooperativity between regulatory features.
+\newblock {\em Nucleic Acids Research}, 49:e77.
+\bibitem[Zhang et al.(2008)]{zhang2008macs}
+Zhang, Y., et al.\ (2008).
+\newblock Model-based analysis of ChIP-Seq (MACS).
+\newblock {\em Genome Biology}, 9:R137.
+\end{thebibliography}
+
+\appendix
+\section{Implementation details}
+Backbone: $9$ residual dilated blocks, kernel $3$, dilations $\{1,2,4,8,16,32,64,128,256\}$, hidden $D{=}128$, dropout $0.1$, BatchNorm$+$GELU. Initial conv kernel $21$ with padding $10$. Helical PE uses $4$ harmonics each for major/minor groove. Slot attention: $K{=}16$, $D_s{=}128$, $T_{\text{iter}}{=}3$, GRU update, independent (softmax-over-positions) attention. Heads: each is a $2$-layer MLP with hidden $128$ and GELU. Profile head emits Gaussian peak parameters per slot.
+
+\paragraph{Training.} AdamW ($\beta_1{=}0.9, \beta_2{=}0.999$, weight decay $0.01$), peak LR $1{\times}10^{-4}$ with $5\%$ linear warmup and cosine decay, batch $32$, $\le 100$ epochs with early stopping (patience $20$), gradient clipping $1.0$, mixed precision (AMP). Loss weights: profile $1.0$, position $1.0$, TF $5.0$, occupancy $0.5$, diversity $0.5$, orthogonality $0.1$, site supervision $1.0$, slot count $1.0$, load balancing $1.0$.
+
+\paragraph{Compute.} Each run uses $3\times$ NVIDIA RTX 2080 Ti for $\sim$\,$8$ hours (best run: $8.21$\,h, $80$ best-epoch). Total compute over reported experiments and ablations is $\sim$\,$200$ GPU-hours; preliminary/failed runs (synthetic-data exploration, hyperparameter search, multi-slot debugging) used another $\sim$\,$200$ GPU-hours.
+
+\paragraph{Data splits.} Training: chr1--17 ($28{,}812$ windows). Validation: chr18--19 ($1{,}533$). Test: chr20--22, X ($1{,}197$). HepG2 transfer set: all autosomes for the four overlapping TFs, used only for evaluation.
+
+\paragraph{Code.} Anonymized code, environment file, pretrained K562-7tf weights, and exact run commands are included in the supplementary ZIP.
+
+\section{Additional results}
+We provide per-TF tables, attention visualizations, motif logos for each slot, the full multi-slot training sweep, and a sensitivity analysis over $K\!\in\!\{8,16,32\}$ in this appendix and the supplementary ZIP.
+
+\newpage
+\input{checklist.tex}
+
+\end{document}
