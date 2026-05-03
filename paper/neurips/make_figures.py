@@ -59,7 +59,7 @@ os.makedirs(OUT, exist_ok=True)
 # FIGURE 2: BEACON vs BPNet per-TF + speed
 # ============================================================
 def fig_bpnet_comparison():
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6.5, 2.2),
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6.5, 2.4),
                                     gridspec_kw={'width_ratios': [3, 1.2]})
 
     tfs = ['CTCF', 'GATA1', 'TAL1', 'MYC', 'MAX', 'SPI1', 'CEBPB']
@@ -83,17 +83,22 @@ def fig_bpnet_comparison():
     ax1.set_xticklabels(tfs, fontweight='bold')
     ax1.set_ylabel('Profile Pearson $r$')
     ax1.set_ylim(0.55, 1.02)
-    ax1.set_title('A. Per-TF Profile Prediction', fontweight='bold', loc='left')
+    ax1.set_xlim(-0.7, 6.7)
+    ax1.set_title('A. Per-TF Profile Prediction', fontweight='bold', loc='left', pad=8)
     ax1.legend(loc='lower left', framealpha=0.9, edgecolor='gray')
     ax1.axhline(y=np.mean(beacon_r), color=BEACON_DARK, linestyle='--', alpha=0.4, linewidth=0.8)
     ax1.axhline(y=np.mean(bpnet_r),  color=GREEN_DARK,  linestyle='--', alpha=0.4, linewidth=0.8)
-    ax1.text(6.6, np.mean(beacon_r), f'$\\bar{{r}}$={np.mean(beacon_r):.3f}',
-             fontsize=6, color=BEACON_DARK, va='center')
-    ax1.text(6.6, np.mean(bpnet_r),  f'$\\bar{{r}}$={np.mean(bpnet_r):.3f}',
-             fontsize=6, color=GREEN_DARK,  va='center')
+    # Place mean-r labels inside the axes, hugging the right edge.
+    ax1.text(6.55, np.mean(beacon_r), f' $\\bar{{r}}$={np.mean(beacon_r):.3f}',
+             fontsize=6, color=BEACON_DARK, va='center', ha='left',
+             clip_on=False, bbox=dict(facecolor='white', edgecolor='none', pad=0.5))
+    ax1.text(6.55, np.mean(bpnet_r),  f' $\\bar{{r}}$={np.mean(bpnet_r):.3f}',
+             fontsize=6, color=GREEN_DARK,  va='center', ha='left',
+             clip_on=False, bbox=dict(facecolor='white', edgecolor='none', pad=0.5))
     sns.despine(ax=ax1)
 
-    methods = ['BEACON', 'BPNet +\nTF-MoDISco']
+    # Use a single-line method label so it cannot crowd the title.
+    methods = ['BEACON', 'BPNet+MoDISco']
     times = [0.020, 8.4]
     colors = [BEACON_DARK, GREEN_MED]
     ax2.barh(methods, times, color=colors, edgecolor='white',
@@ -101,14 +106,15 @@ def fig_bpnet_comparison():
     ax2.set_xlabel('Time per sequence (s)')
     ax2.set_xscale('log')
     ax2.set_xlim(0.005, 20)
-    ax2.set_title('B. Interpretation Speed', fontweight='bold', loc='left')
+    ax2.set_ylim(-0.7, 1.7)  # extra headroom so title sits clear of bar labels
+    ax2.set_title('B. Interpretation Speed', fontweight='bold', loc='left', pad=8)
     ax2.annotate('419× faster', xy=(0.020, 0), fontsize=7, fontweight='bold',
                  color=BEACON_DARK, va='center', ha='left',
-                 xytext=(0.06, -0.15),
+                 xytext=(0.06, -0.4),
                  arrowprops=dict(arrowstyle='->', color=BEACON_DARK, lw=0.8))
     sns.despine(ax=ax2)
 
-    plt.tight_layout(w_pad=1.5)
+    plt.tight_layout(w_pad=2.0)
     fig.savefig(f'{OUT}/fig2_bpnet_comparison.pdf')
     fig.savefig(f'{OUT}/fig2_bpnet_comparison.png', dpi=300)
     plt.close()
